@@ -43,7 +43,7 @@ export const ROLE_LIMITS: Record<string, number> = {
   "Technical Lead": 1,
   "Product Owner": 1,
   "Business SPOC": 1,
-  QA: 0,
+  QA: 1,
   Intern: 1,
 };
 
