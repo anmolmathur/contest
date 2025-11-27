@@ -233,7 +233,7 @@ export default function RulesPage() {
                   </div>
                   <div className="mt-4 pt-4 border-t border-white/10">
                     <p className="text-gray-300">
-                      <span className="font-bold text-white">Team Size:</span> 5–6
+                      <span className="font-bold text-white">Team Size:</span> 6-7
                       members
                     </p>
                     <p className="text-sm text-gray-400 mt-2">
