@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { teams, submissions, scores } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { SCORE_WEIGHTS, PHASE_WEIGHTS } from "@/lib/constants";
+import { SCORE_WEIGHTS, PHASE_MAX_POINTS } from "@/lib/constants";
 
 export async function GET() {
   try {
-    // Get all teams
-    const allTeams = await db.query.teams.findMany();
+    // Get only approved teams
+    const allTeams = await db.query.teams.findMany({
+      where: eq(teams.approved, true),
+    });
 
     const leaderboardData = await Promise.all(
       allTeams.map(async (team) => {
@@ -19,13 +21,13 @@ export async function GET() {
           },
         });
 
-        // Calculate scores by phase
-        const phaseScores: Record<number, number> = {};
+        // Calculate scores by phase (weighted score 0-100)
+        const phaseWeightedScores: Record<number, number> = {};
 
         for (const submission of teamSubmissions) {
           if (submission.scores.length === 0) continue;
 
-          // Calculate average weighted score from all judges for this submission
+          // Calculate average weighted score from all judges for this submission (0-100 scale)
           const avgWeightedScore =
             submission.scores.reduce((sum, score) => {
               const weightedScore =
@@ -37,21 +39,29 @@ export async function GET() {
               return sum + weightedScore;
             }, 0) / submission.scores.length;
 
-          // Store the best score for this phase
+          // Store the best weighted score for this phase
           if (
-            !phaseScores[submission.phase] ||
-            avgWeightedScore > phaseScores[submission.phase]
+            !phaseWeightedScores[submission.phase] ||
+            avgWeightedScore > phaseWeightedScores[submission.phase]
           ) {
-            phaseScores[submission.phase] = avgWeightedScore;
+            phaseWeightedScores[submission.phase] = avgWeightedScore;
           }
         }
 
-        // Calculate total weighted score across phases
+        // Scale phase scores to their maximum points
+        // Phase 2: 25 pts, Phase 3: 25 pts, Phase 4: 50 pts (Total: 100 pts)
+        const phaseScores: Record<number, number> = {};
         let totalScore = 0;
-        for (const phase of [1, 2, 3, 4]) {
-          if (phaseScores[phase]) {
-            totalScore +=
-              phaseScores[phase] * PHASE_WEIGHTS[phase as keyof typeof PHASE_WEIGHTS];
+
+        for (const phase of [2, 3, 4]) {
+          const maxPoints = PHASE_MAX_POINTS[phase as keyof typeof PHASE_MAX_POINTS] || 0;
+          if (phaseWeightedScores[phase]) {
+            // Scale the 0-100 weighted score to the phase maximum
+            const scaledScore = (phaseWeightedScores[phase] / 100) * maxPoints;
+            phaseScores[phase] = scaledScore;
+            totalScore += scaledScore;
+          } else {
+            phaseScores[phase] = 0;
           }
         }
 
@@ -59,6 +69,11 @@ export async function GET() {
           teamId: team.id,
           teamName: team.name,
           track: team.track,
+          phaseScores: {
+            phase2: phaseScores[2] || 0,
+            phase3: phaseScores[3] || 0,
+            phase4: phaseScores[4] || 0,
+          },
           totalScore,
         };
       })

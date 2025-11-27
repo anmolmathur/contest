@@ -176,6 +176,8 @@ anmol.mathur@teamlease.com (Any role)
 - Use simple passwords for testing (e.g., "password")
 - Create at least 6 users to form one complete team
 - Remember to create the three judge accounts
+- You can create test teams without worrying about the 5-team limit
+- Judges will approve only the final 5 competing teams
 
 ### 2. Create a Team
 
@@ -202,9 +204,23 @@ As the team creator:
    - 1 Business SPOC
    - Optional: 1 Intern or QA
 
-**⚠️ Team Limit:** Only 5 teams can be created system-wide!
+**ℹ️ Team Limit:** Up to 50 teams can be created, but only 5 teams can be approved by judges to compete!
 
-### 4. Submit Work
+### 4. Team Approval (Judges Only)
+
+Login as a judge (one of the three judge emails) to approve teams:
+
+1. Navigate to **Judging Portal** (automatic redirect)
+2. View **All Teams** section
+3. Click **"Approve"** button on a team
+   - Only 5 teams can be approved
+   - Approved teams are marked with a green badge
+   - Approval count is shown: "X / 5 teams approved"
+4. To unapprove, click **"Unapprove"** button
+
+**Important:** Only approved teams will appear on the leaderboard and compete for prizes!
+
+### 5. Submit Work
 
 From your Dashboard:
 
@@ -220,7 +236,7 @@ From your Dashboard:
 
 **✅ Success!** Your submission is now visible in the judging portal.
 
-### 5. Judge Submissions
+### 6. Judge Submissions
 
 Login as a judge (one of the three judge emails):
 
@@ -288,12 +304,14 @@ Run through this checklist to ensure everything is working:
 ### Functionality Check
 - [ ] Can register new users
 - [ ] Can login with registered users
-- [ ] Can create a team (up to 5 teams)
+- [ ] Can create a team (up to 50 teams)
 - [ ] Can add team members
+- [ ] Judges can approve teams (up to 5)
+- [ ] Approved teams show badges
 - [ ] Can create submissions
 - [ ] Judges can access `/judging`
 - [ ] Judges can score submissions
-- [ ] Leaderboard displays correctly
+- [ ] Leaderboard displays only approved teams
 
 **If all items are checked:** ✅ You're ready to go!
 
@@ -501,7 +519,9 @@ Now that you have the platform running:
    - Update judge emails in `lib/constants.ts`
    - Modify tracks in `lib/constants.ts`
    - Adjust scoring weights in `lib/constants.ts`
-   - Change team limits in `lib/constants.ts`
+   - Change team limits in `lib/constants.ts`:
+     - `MAX_TEAMS` - Total teams that can be created (default: 50)
+     - `MAX_APPROVED_TEAMS` - Teams that can compete (default: 5)
 
 4. **Deploy to production:**
    - Follow [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment options

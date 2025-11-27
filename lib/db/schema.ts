@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // Enums
@@ -42,6 +42,7 @@ export const teams = pgTable("teams", {
   name: varchar("name", { length: 255 }).notNull().unique(),
   track: trackEnum("track").notNull(),
   createdBy: uuid("created_by").notNull(),
+  approved: boolean("approved").default(false).notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 });
@@ -53,11 +54,15 @@ export const submissions = pgTable("submissions", {
   phase: integer("phase").notNull(),
   githubUrl: varchar("github_url", { length: 255 }).notNull(),
   demoUrl: varchar("demo_url", { length: 255 }).notNull(),
+  submissionDescription: text("submission_description"),
   aiPromptsUsed: text("ai_prompts_used").notNull(),
   aiToolsUtilized: text("ai_tools_utilized").notNull(),
   aiScreenshots: text("ai_screenshots").array().notNull(),
   submittedAt: timestamp("submitted_at", { mode: "date" }).defaultNow(),
-});
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+}, (table) => ({
+  uniqueTeamPhase: unique().on(table.teamId, table.phase),
+}));
 
 // Scores Table
 export const scores = pgTable("scores", {

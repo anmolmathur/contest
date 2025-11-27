@@ -1,12 +1,26 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { teams } from "@/lib/db/schema";
-import { count } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 
 export async function GET() {
   try {
-    const [result] = await db.select({ count: count() }).from(teams);
-    return NextResponse.json({ count: result.count }, { status: 200 });
+    // Get total count of all teams
+    const [teamCountResult] = await db.select({ count: count() }).from(teams);
+    
+    // Get count of approved teams
+    const [approvedCountResult] = await db
+      .select({ count: count() })
+      .from(teams)
+      .where(eq(teams.approved, true));
+
+    return NextResponse.json(
+      { 
+        count: teamCountResult.count,
+        approvedCount: approvedCountResult.count
+      },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("Team count error:", error);
     return NextResponse.json(
@@ -15,4 +29,3 @@ export async function GET() {
     );
   }
 }
-

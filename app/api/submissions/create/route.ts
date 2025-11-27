@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { submissions, users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
       phase,
       githubUrl,
       demoUrl,
+      submissionDescription,
       aiPromptsUsed,
       aiToolsUtilized,
       aiScreenshots,
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest) {
       !phase ||
       !githubUrl ||
       !demoUrl ||
+      !submissionDescription ||
       !aiPromptsUsed ||
       !aiToolsUtilized ||
       !aiScreenshots ||
@@ -57,7 +59,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create submission
+    // Check if a submission already exists for this team and phase
+    const existingSubmission = await db.query.submissions.findFirst({
+      where: and(
+        eq(submissions.teamId, user.teamId),
+        eq(submissions.phase, phase)
+      ),
+    });
+
+    if (existingSubmission) {
+      // Update existing submission
+      const [updatedSubmission] = await db
+        .update(submissions)
+        .set({
+          githubUrl,
+          demoUrl,
+          submissionDescription,
+          aiPromptsUsed,
+          aiToolsUtilized,
+          aiScreenshots,
+          updatedAt: new Date(),
+        })
+        .where(eq(submissions.id, existingSubmission.id))
+        .returning();
+
+      return NextResponse.json(
+        { 
+          message: "Submission updated successfully", 
+          submission: updatedSubmission,
+          updated: true 
+        },
+        { status: 200 }
+      );
+    }
+
+    // Create new submission
     const [newSubmission] = await db
       .insert(submissions)
       .values({
@@ -65,6 +101,7 @@ export async function POST(req: NextRequest) {
         phase,
         githubUrl,
         demoUrl,
+        submissionDescription,
         aiPromptsUsed,
         aiToolsUtilized,
         aiScreenshots,
@@ -83,4 +120,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

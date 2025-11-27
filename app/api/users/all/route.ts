@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
+import { users, teams } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function GET() {
   try {
@@ -18,24 +20,28 @@ export async function GET() {
       );
     }
 
-    // Get all teams with their members and submissions
-    const teamsWithData = await db.query.teams.findMany({
+    // Get all users with their team information
+    const allUsers = await db.query.users.findMany({
       with: {
-        members: {
-          columns: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-          },
-        },
-        submissions: true,
+        team: true,
       },
     });
 
-    return NextResponse.json({ teams: teamsWithData }, { status: 200 });
+    // Format the response
+    const formattedUsers = allUsers.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+      teamId: user.teamId,
+      teamName: user.team?.name || null,
+      createdAt: user.createdAt,
+    }));
+
+    return NextResponse.json({ users: formattedUsers }, { status: 200 });
   } catch (error) {
-    console.error("Get all teams error:", error);
+    console.error("Get all users error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

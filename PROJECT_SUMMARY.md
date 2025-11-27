@@ -194,7 +194,7 @@ users (
 
 #### Hard Constraints (Enforced)
 - ✅ **Maximum 5 Teams**: System-wide limit enforced in `/api/teams/create`
-- ✅ **Team Size**: 5-6 members (minimum 5, maximum 6)
+- ✅ **Team Size**: 5-7 members (minimum 5, maximum 7)
 - ✅ **Composition Rules**: Enforced in `/api/teams/add-member`
   - Exactly 3 Developers (ROLE_LIMITS.Developer = 3)
   - Exactly 1 Technical Lead (ROLE_LIMITS["Technical Lead"] = 1)

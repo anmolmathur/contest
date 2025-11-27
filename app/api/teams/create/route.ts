@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, users } from "@/lib/db/schema";
 import { eq, count } from "drizzle-orm";
+import { MAX_TEAMS } from "@/lib/constants";
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,11 +22,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if team limit (5 teams) has been reached
+    // Check if team limit has been reached
     const [teamCountResult] = await db.select({ count: count() }).from(teams);
-    if (teamCountResult.count >= 5) {
+    if (teamCountResult.count >= MAX_TEAMS) {
       return NextResponse.json(
-        { error: "Maximum team limit (5) reached" },
+        { error: `Maximum team limit (${MAX_TEAMS}) reached` },
         { status: 400 }
       );
     }

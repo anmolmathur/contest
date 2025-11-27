@@ -3,15 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, teams } from "@/lib/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
-
-const ROLE_LIMITS = {
-  Developer: 3,
-  "Technical Lead": 1,
-  "Product Owner": 1,
-  "Business SPOC": 1,
-  QA: 0,
-  Intern: 1,
-};
+import { MAX_TEAM_MEMBERS, ROLE_LIMITS } from "@/lib/constants";
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,10 +59,10 @@ export async function POST(req: NextRequest) {
       where: eq(users.teamId, teamId),
     });
 
-    // Check team size limit (max 6 members)
-    if (teamMembers.length >= 6) {
+    // Check team size limit
+    if (teamMembers.length >= MAX_TEAM_MEMBERS) {
       return NextResponse.json(
-        { error: "Team is full (maximum 6 members)" },
+        { error: `Team is full (maximum ${MAX_TEAM_MEMBERS} members)` },
         { status: 400 }
       );
     }

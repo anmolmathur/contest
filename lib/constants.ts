@@ -27,8 +27,16 @@ export const ROLES = [
 ] as const;
 
 // Team Constraints
-export const MAX_TEAMS = 5;
-export const MAX_TEAM_MEMBERS = 6;
+export const MAX_TEAMS = 50;
+export const MAX_APPROVED_TEAMS = 5;
+export const MAX_TEAM_MEMBERS = 7;
+
+// Phase Maximum Points (total = 100)
+export const PHASE_MAX_POINTS = {
+  2: 25,  // Phase 2: Vibe Coding Sprint
+  3: 25,  // Phase 3: Mid-Point Review
+  4: 50,  // Phase 4: Grand Finale
+} as const;
 
 export const ROLE_LIMITS: Record<string, number> = {
   Developer: 3,
@@ -51,12 +59,12 @@ export const SCORE_WEIGHTS = {
   execution: 0.15,
 } as const;
 
-// Phase Weights
+// Phase Weights (for legacy compatibility - now using PHASE_MAX_POINTS)
 export const PHASE_WEIGHTS = {
-  1: 0.25,
-  2: 0.25,
-  3: 0.25,
-  4: 0.25,
+  1: 0,     // Phase 1: No scoring
+  2: 0.25,  // Phase 2: 25 pts
+  3: 0.25,  // Phase 3: 25 pts
+  4: 0.50,  // Phase 4: 50 pts
 } as const;
 
 // Timeline
