@@ -19,7 +19,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 # Dummy DATABASE_URL for build time (actual URL provided at runtime)
-ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db"
+# ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db"
+ENV DATABASE_URL="postgresql://hackathon:2025Hackathon@10.0.3.146:5432/tle_hackathon"
 ENV AUTH_SECRET="build-time-secret-will-be-replaced-at-runtime"
 ENV NEXTAUTH_URL="http://localhost:3000"
 
