@@ -264,7 +264,7 @@ export default function RulesPage() {
                   Mandatory Tracks (Teams Choose One)
                 </h2>
                 <p className="text-red-400 font-bold text-lg">
-                  Only 5 Teams Allowed
+                  Only 6 Teams Allowed
                 </p>
               </div>
             </div>

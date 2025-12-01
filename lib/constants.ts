@@ -28,7 +28,7 @@ export const ROLES = [
 
 // Team Constraints
 export const MAX_TEAMS = 50;
-export const MAX_APPROVED_TEAMS = 5;
+export const MAX_APPROVED_TEAMS = 6;
 export const MAX_TEAM_MEMBERS = 7;
 
 // Phase Maximum Points (total = 100)
