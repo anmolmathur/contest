@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BarChart3, List } from "lucide-react";
+import { BarChart3, List, Crown } from "lucide-react";
 
 interface PhaseScores {
   phase2: number;
@@ -20,11 +20,19 @@ interface PhaseScores {
   phase4: number;
 }
 
+interface TeamMember {
+  id: string;
+  name: string | null;
+  isLeader: boolean;
+}
+
 interface LeaderboardEntry {
   teamId: string;
   teamName: string;
   track: string;
   totalScore: number;
+  leaderId?: string | null;
+  members?: TeamMember[];
   phaseScores?: PhaseScores;
 }
 
@@ -103,6 +111,7 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
             <TableRow className="border-white/10">
               <TableHead className="text-gray-400">Rank</TableHead>
               <TableHead className="text-gray-400">Team Name</TableHead>
+              <TableHead className="text-gray-400">Team Members</TableHead>
               <TableHead className="text-gray-400">Track</TableHead>
               {viewMode === "breakdown" && (
                 <>
@@ -131,6 +140,27 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
                   </TableCell>
                   <TableCell className="font-semibold text-white">
                     {entry.teamName}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1 max-w-xs">
+                      {entry.members && entry.members.length > 0 ? (
+                        entry.members.map((member) => (
+                          <span
+                            key={member.id}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                              member.isLeader
+                                ? "bg-amber-500/20 border border-amber-500/30 text-amber-400 font-semibold"
+                                : "bg-white/10 border border-white/10 text-gray-300"
+                            }`}
+                          >
+                            {member.isLeader && <Crown size={10} />}
+                            {member.name || "Unnamed"}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-gray-500 text-xs">No members</span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-gray-400">{entry.track}</TableCell>
                   {viewMode === "breakdown" && entry.phaseScores && (

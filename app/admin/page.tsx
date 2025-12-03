@@ -45,6 +45,7 @@ import {
   Send,
   Key,
   ExternalLink,
+  Crown,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -56,6 +57,7 @@ interface User {
   department: string | null;
   teamId: string | null;
   teamName: string | null;
+  isTeamLeader?: boolean;
 }
 
 interface Team {
@@ -64,6 +66,7 @@ interface Team {
   track: string;
   approved: boolean;
   createdBy: string;
+  leaderId: string | null;
   members?: User[];
   submissions?: any[];
 }
@@ -381,9 +384,40 @@ export default function AdminPage() {
       const res = await fetch(`/api/teams/${team.id}`);
       const data = await res.json();
       setTeamMembers(data.members || []);
+      setViewingTeam(data.team); // Update with full team data including leaderId
       setViewTeamOpen(true);
     } catch (err) {
       console.error("Error loading team details:", err);
+    }
+  };
+
+  const handleSetTeamLeader = async (teamId: string, userId: string) => {
+    setError("");
+    setSuccess("");
+
+    try {
+      const res = await fetch("/api/teams/set-leader", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamId, userId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error);
+        return;
+      }
+
+      setSuccess("Team leader updated successfully!");
+      // Reload team data
+      const teamRes = await fetch(`/api/teams/${teamId}`);
+      const teamData = await teamRes.json();
+      setTeamMembers(teamData.members || []);
+      setViewingTeam(teamData.team);
+      loadTeams();
+    } catch (err) {
+      setError("Failed to set team leader");
     }
   };
 
@@ -776,7 +810,17 @@ export default function AdminPage() {
                   <TableBody>
                     {users.map((user) => (
                       <TableRow key={user.id} className="border-white/10">
-                        <TableCell className="text-white font-semibold">{user.name}</TableCell>
+                        <TableCell className="text-white font-semibold">
+                          <div className="flex items-center gap-2">
+                            {user.name}
+                            {user.isTeamLeader && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                                <Crown size={10} />
+                                Leader
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-gray-400">{user.email}</TableCell>
                         <TableCell className="text-gray-400">{user.role}</TableCell>
                         <TableCell className="text-gray-400">{user.department || "-"}</TableCell>
@@ -1239,18 +1283,39 @@ export default function AdminPage() {
                     {teamMembers.map((member) => (
                       <div
                         key={member.id}
-                        className="bg-white/5 border border-white/10 rounded-lg p-3 flex items-center justify-between"
+                        className={`bg-white/5 border rounded-lg p-3 flex items-center justify-between ${
+                          member.id === viewingTeam.leaderId
+                            ? "border-amber-500/30 bg-amber-500/5"
+                            : "border-white/10"
+                        }`}
                       >
                         <div>
-                          <p className="text-white font-semibold">
-                            {member.name}
-                            {member.id === viewingTeam.createdBy && (
-                              <span className="ml-2 text-xs text-neon-purple">(Creator)</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-white font-semibold">{member.name}</p>
+                            {member.id === viewingTeam.leaderId && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                                <Crown size={10} />
+                                Team Leader
+                              </span>
                             )}
-                          </p>
+                            {member.id === viewingTeam.createdBy && (
+                              <span className="text-xs text-neon-purple">(Creator)</span>
+                            )}
+                          </div>
                           <p className="text-sm text-gray-400">{member.role}</p>
                           <p className="text-xs text-gray-500">{member.email}</p>
                         </div>
+                        {member.id !== viewingTeam.leaderId && (
+                          <Button
+                            onClick={() => handleSetTeamLeader(viewingTeam.id, member.id)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                            title="Make Team Leader"
+                          >
+                            <Crown size={16} />
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>

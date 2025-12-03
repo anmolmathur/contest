@@ -1,14 +1,22 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { teams, submissions, scores } from "@/lib/db/schema";
+import { teams, submissions, scores, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { SCORE_WEIGHTS, PHASE_MAX_POINTS } from "@/lib/constants";
 
 export async function GET() {
   try {
-    // Get only approved teams
+    // Get only approved teams with their members
     const allTeams = await db.query.teams.findMany({
       where: eq(teams.approved, true),
+      with: {
+        members: {
+          columns: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     const leaderboardData = await Promise.all(
@@ -69,6 +77,12 @@ export async function GET() {
           teamId: team.id,
           teamName: team.name,
           track: team.track,
+          leaderId: team.leaderId,
+          members: team.members.map((member) => ({
+            id: member.id,
+            name: member.name,
+            isLeader: member.id === team.leaderId,
+          })),
           phaseScores: {
             phase2: phaseScores[2] || 0,
             phase3: phaseScores[3] || 0,

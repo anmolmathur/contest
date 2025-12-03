@@ -15,6 +15,13 @@
       "when": 1764230000000,
       "tag": "0001_submission_unique_constraint",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1764400000000,
+      "tag": "0002_add_team_leader",
+      "breakpoints": true
     }
   ]
 }

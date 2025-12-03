@@ -36,6 +36,7 @@ export async function GET() {
       department: user.department,
       teamId: user.teamId,
       teamName: user.team?.name || null,
+      isTeamLeader: user.team?.leaderId === user.id,
       createdAt: user.createdAt,
     }));
 

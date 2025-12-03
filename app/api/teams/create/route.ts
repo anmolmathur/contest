@@ -43,13 +43,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create team
+    // Create team (creator is also the initial leader)
     const [newTeam] = await db
       .insert(teams)
       .values({
         name,
         track,
         createdBy: session.user.id,
+        leaderId: session.user.id,
       })
       .returning();
 

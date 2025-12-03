@@ -42,6 +42,7 @@ export const teams = pgTable("teams", {
   name: varchar("name", { length: 255 }).notNull().unique(),
   track: trackEnum("track").notNull(),
   createdBy: uuid("created_by").notNull(),
+  leaderId: uuid("leader_id"),
   approved: boolean("approved").default(false).notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),

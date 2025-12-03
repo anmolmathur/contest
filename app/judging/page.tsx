@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { JUDGE_EMAILS, MAX_APPROVED_TEAMS, PHASE_MAX_POINTS } from "@/lib/constants";
-import { Award, ExternalLink, CheckCircle, XCircle, Home, Settings, LogOut, Users } from "lucide-react";
+import { Award, ExternalLink, CheckCircle, XCircle, Home, Settings, LogOut, Users, Crown } from "lucide-react";
 
 interface TeamMember {
   id: string;
@@ -31,6 +31,7 @@ interface Team {
   name: string;
   track: string;
   approved: boolean;
+  leaderId: string | null;
   members: TeamMember[];
 }
 
@@ -376,11 +377,23 @@ export default function JudgingPage() {
                               {team.members.map((member) => (
                                 <div
                                   key={member.id}
-                                  className="flex flex-col gap-1 p-3 bg-white/5 rounded-lg border border-white/5"
+                                  className={`flex flex-col gap-1 p-3 bg-white/5 rounded-lg border ${
+                                    member.id === team.leaderId 
+                                      ? "border-amber-500/30 bg-amber-500/5" 
+                                      : "border-white/5"
+                                  }`}
                                 >
-                                  <span className="text-white font-medium text-sm">
-                                    {member.name || "Unnamed"}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-white font-medium text-sm">
+                                      {member.name || "Unnamed"}
+                                    </span>
+                                    {member.id === team.leaderId && (
+                                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                                        <Crown size={10} />
+                                        Leader
+                                      </span>
+                                    )}
+                                  </div>
                                   <span className="text-gray-400 text-xs truncate">
                                     {member.email}
                                   </span>

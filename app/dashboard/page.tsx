@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import BackgroundPattern from "@/components/BackgroundPattern";
-import { Users, Plus, Send, CheckCircle, Award, Trophy, LogOut, User, Edit, Trash2, UserMinus } from "lucide-react";
+import { Users, Plus, Send, CheckCircle, Award, Trophy, LogOut, User, Edit, Trash2, UserMinus, Crown } from "lucide-react";
 import { MAX_TEAMS, MAX_TEAM_MEMBERS, JUDGE_EMAILS } from "@/lib/constants";
 import Leaderboard from "@/components/Leaderboard";
 
@@ -57,6 +57,7 @@ interface Team {
   name: string;
   track: string;
   createdBy: string;
+  leaderId: string | null;
   approved: boolean;
 }
 
@@ -511,6 +512,33 @@ export default function DashboardPage() {
     }
   };
 
+  const handleSetLeader = async (userId: string) => {
+    setError("");
+    setSuccess("");
+
+    if (!team) return;
+
+    try {
+      const res = await fetch("/api/teams/set-leader", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamId: team.id, userId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error);
+        return;
+      }
+
+      setSuccess("Team leader updated successfully!");
+      loadDashboardData();
+    } catch (err) {
+      setError("Failed to set team leader");
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -791,27 +819,48 @@ export default function DashboardPage() {
                         className="bg-white/5 border border-white/10 rounded-lg p-4 flex items-start justify-between"
                       >
                         <div>
-                          <p className="text-white font-semibold">
-                            {member.name}
-                            {member.id === team.createdBy && (
-                              <span className="ml-2 text-xs text-neon-purple">(Creator)</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-white font-semibold">
+                              {member.name}
+                            </p>
+                            {member.id === team.leaderId && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                                <Crown size={12} />
+                                Team Leader
+                              </span>
                             )}
-                          </p>
+                            {member.id === team.createdBy && (
+                              <span className="text-xs text-neon-purple">(Creator)</span>
+                            )}
+                          </div>
                           <p className="text-sm text-gray-400">{member.role}</p>
                           <p className="text-xs text-gray-500">{member.email}</p>
                         </div>
-                        {team.createdBy === session?.user?.id && 
-                         member.id !== team.createdBy && 
-                         submissions.length === 0 && (
-                          <Button
-                            onClick={() => handleRemoveMember(member.id)}
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                          >
-                            <UserMinus size={16} />
-                          </Button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {member.id !== team.leaderId && (
+                            <Button
+                              onClick={() => handleSetLeader(member.id)}
+                              variant="ghost"
+                              size="sm"
+                              className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                              title="Make Team Leader"
+                            >
+                              <Crown size={16} />
+                            </Button>
+                          )}
+                          {team.createdBy === session?.user?.id && 
+                           member.id !== team.createdBy && 
+                           submissions.length === 0 && (
+                            <Button
+                              onClick={() => handleRemoveMember(member.id)}
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            >
+                              <UserMinus size={16} />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
