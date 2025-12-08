@@ -447,20 +447,20 @@ export default function JudgingPage() {
                         return (
                           <div
                             key={submission.id}
-                            className={`bg-white/5 border rounded-lg p-4 flex items-center justify-between ${
+                            className={`bg-white/5 border rounded-lg p-4 flex flex-wrap items-center justify-between gap-4 ${
                               isComplete 
                                 ? "border-green-500/30" 
                                 : "border-white/10"
                             }`}
                           >
-                            <div className="flex items-center gap-4">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-white font-semibold">
+                            <div className="flex flex-wrap items-center gap-4 min-w-0 flex-1">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-white font-semibold whitespace-nowrap">
                                     Phase {submission.phase}
                                   </p>
                                   {/* Completeness Indicator */}
-                                  <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${
+                                  <span className={`px-2 py-0.5 text-xs rounded-full font-semibold whitespace-nowrap ${
                                     isComplete
                                       ? "bg-green-500/20 text-green-400 border border-green-500/30"
                                       : judgesScored > 0
@@ -473,17 +473,17 @@ export default function JudgingPage() {
                                     <CheckCircle size={16} className="text-green-400" />
                                   )}
                                 </div>
-                                <p className="text-sm text-gray-400">
+                                <p className="text-sm text-gray-400 whitespace-nowrap">
                                   Submitted:{" "}
                                   {new Date(submission.submittedAt).toLocaleDateString()}
                                 </p>
                               </div>
                               {existingScore ? (
-                                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20">
-                                  <CheckCircle size={18} className="text-green-400" />
-                                  <div className="text-sm">
-                                    <p className="text-green-400 font-semibold">Scored by you</p>
-                                    <p className="text-gray-300">
+                                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20 min-w-0">
+                                  <CheckCircle size={18} className="text-green-400 flex-shrink-0" />
+                                  <div className="text-sm min-w-0">
+                                    <p className="text-green-400 font-semibold whitespace-nowrap">Scored by you</p>
+                                    <p className="text-gray-300 break-words">
                                       <span className="text-white font-medium">{phaseScore}</span>
                                       <span className="text-gray-500"> / {phaseMax} pts</span>
                                       <span className="text-gray-500 ml-2">(Weighted: {existingScore.weightedScore})</span>
@@ -492,16 +492,16 @@ export default function JudgingPage() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                                  <span className="text-yellow-400 text-sm font-semibold">⏳ Awaiting your score</span>
+                                  <span className="text-yellow-400 text-sm font-semibold whitespace-nowrap">⏳ Awaiting your score</span>
                                 </div>
                               )}
                             </div>
                             <Button
                               onClick={() => openScoringDialog(submission, team)}
-                              className={existingScore 
+                              className={`flex-shrink-0 ${existingScore 
                                 ? "bg-gradient-to-r from-amber-500 to-orange-500"
                                 : "bg-gradient-to-r from-neon-purple to-electric-blue"
-                              }
+                              }`}
                             >
                               {existingScore ? "Edit Score" : "Score Submission"}
                             </Button>

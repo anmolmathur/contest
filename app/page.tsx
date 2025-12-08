@@ -111,6 +111,11 @@ export default function HomePage() {
                 View Rules
               </button>
             </Link>
+            <Link href="/login">
+              <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                Sign In
+              </button>
+            </Link>
           </motion.div>
         </div>
 
