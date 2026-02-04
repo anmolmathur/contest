@@ -81,6 +81,33 @@ export const scores = pgTable("scores", {
   uniqueJudgeSubmission: unique().on(table.submissionId, table.judgeId),
 }));
 
+// Certificate Templates Table
+export const certificateTemplates = pgTable("certificate_templates", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  isDefault: boolean("is_default").default(false).notNull(),
+
+  // Text customizations
+  titleText: varchar("title_text", { length: 255 }).default("Certificate of Achievement").notNull(),
+  subtitleText: varchar("subtitle_text", { length: 500 }).default("This certificate is awarded to").notNull(),
+  eventName: varchar("event_name", { length: 255 }).default("AI Vibe Coding Challenge 2024").notNull(),
+  footerText: text("footer_text"),
+  signatureName: varchar("signature_name", { length: 255 }),
+  signatureTitle: varchar("signature_title", { length: 255 }),
+
+  // Logo customizations (URLs)
+  primaryLogoUrl: varchar("primary_logo_url", { length: 500 }),
+  secondaryLogoUrl: varchar("secondary_logo_url", { length: 500 }),
+
+  // Style customizations
+  primaryColor: varchar("primary_color", { length: 7 }).default("#7c3aed").notNull(),
+  secondaryColor: varchar("secondary_color", { length: 7 }).default("#2563eb").notNull(),
+
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+});
+
 // Auth.js Tables
 export const accounts = pgTable("accounts", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -157,6 +184,13 @@ export const accountsRelations = relations(accounts, ({ one }) => ({
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, {
     fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const certificateTemplatesRelations = relations(certificateTemplates, ({ one }) => ({
+  creator: one(users, {
+    fields: [certificateTemplates.createdBy],
     references: [users.id],
   }),
 }));

@@ -46,7 +46,9 @@ import {
   Key,
   ExternalLink,
   Crown,
+  FileText,
 } from "lucide-react";
+import CertificateTab from "@/components/certificates/CertificateTab";
 import { Textarea } from "@/components/ui/textarea";
 
 interface User {
@@ -108,7 +110,7 @@ interface Submission {
   isFullyScored: boolean;
 }
 
-type TabType = "summary" | "users" | "teams" | "submissions" | "scores";
+type TabType = "summary" | "users" | "teams" | "submissions" | "scores" | "certificates";
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
@@ -631,6 +633,7 @@ export default function AdminPage() {
     { id: "teams" as TabType, label: "Teams", icon: UsersRound },
     { id: "submissions" as TabType, label: "Submissions", icon: Send },
     { id: "scores" as TabType, label: "Scores", icon: Award },
+    { id: "certificates" as TabType, label: "Certificates", icon: FileText },
   ];
 
   return (
@@ -1081,6 +1084,11 @@ export default function AdminPage() {
                 </Table>
               </div>
             </GlassCard>
+          )}
+
+          {/* Certificates Tab */}
+          {activeTab === "certificates" && (
+            <CertificateTab setError={setError} setSuccess={setSuccess} />
           )}
 
           {/* Create User Dialog */}
