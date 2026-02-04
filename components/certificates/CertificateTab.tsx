@@ -51,11 +51,11 @@ const RANK_COLORS = {
 };
 
 const RANK_BG = {
-  gold: "bg-yellow-500/20 border-yellow-500/30 text-yellow-400",
-  silver: "bg-gray-400/20 border-gray-400/30 text-gray-300",
-  bronze: "bg-amber-600/20 border-amber-600/30 text-amber-500",
-  copper: "bg-orange-500/20 border-orange-500/30 text-orange-400",
-  steel: "bg-slate-500/20 border-slate-500/30 text-slate-400",
+  gold: "bg-yellow-500 border-yellow-600 text-black font-bold",
+  silver: "bg-gray-300 border-gray-400 text-gray-800 font-bold",
+  bronze: "bg-amber-600 border-amber-700 text-white font-bold",
+  copper: "bg-orange-500 border-orange-600 text-white font-bold",
+  steel: "bg-slate-500 border-slate-600 text-white font-bold",
 };
 
 export default function CertificateTab({ setError, setSuccess }: CertificateTabProps) {
@@ -499,9 +499,8 @@ export default function CertificateTab({ setError, setSuccess }: CertificateTabP
                       <Button
                         onClick={() => handleDownloadTeamCertificates(team)}
                         disabled={downloadingTeam === team.teamId}
-                        variant="outline"
                         size="sm"
-                        className="border-white/20 text-white hover:bg-white/10"
+                        className="bg-white text-gray-900 hover:bg-gray-100 font-medium"
                       >
                         {downloadingTeam === team.teamId ? (
                           <Loader2 className="mr-2 animate-spin" size={14} />
