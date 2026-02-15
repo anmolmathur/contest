@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { isPlatformAdmin } from "@/lib/contest-auth";
 
 export async function POST(
   req: NextRequest,
@@ -12,12 +13,13 @@ export async function POST(
 ) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only admins/judges can reset passwords
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
+    // Only platform admins or legacy judges can reset passwords
+    const isAdmin = await isPlatformAdmin(session.user.id);
+    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
       return NextResponse.json(
         { error: "Only admins can reset passwords" },
         { status: 403 }
@@ -68,4 +70,3 @@ export async function POST(
     );
   }
 }
-

@@ -1,78 +1,88 @@
 "use client";
 
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import GlowButton from "@/components/GlowButton";
-import TrackCard from "@/components/TrackCard";
-import TimelineNode from "@/components/TimelineNode";
-import PrizeCard from "@/components/PrizeCard";
+import { useRouter } from "next/navigation";
 import BackgroundPattern from "@/components/BackgroundPattern";
-import { getImageUrl } from "@/lib/imageHelper";
-import { TIMELINE, PRIZES } from "@/lib/constants";
+import GlowButton from "@/components/GlowButton";
 
-const tracks = [
-  {
-    title: "Alumni Portal",
-    description: "Connect alumni with opportunities and the institution",
-    keyword: "alumni,graduation,network",
-  },
-  {
-    title: "Admission Portal",
-    description: "Streamline the admission process for prospective students",
-    keyword: "admission,university,education",
-  },
-  {
-    title: "DigiVarsity 3.0",
-    description: "Next-generation digital campus experience",
-    keyword: "digital,campus,innovation",
-  },
-  {
-    title: "Partner Portal",
-    description: "Enhance collaboration with institutional partners",
-    keyword: "partnership,collaboration,business",
-  },
-  {
-    title: "Communications Portal",
-    description: "Transform internal and external communications",
-    keyword: "communication,network,social",
-  },
-  {
-    title: "Placement Portal",
-    description: "Bridge the gap between students and career opportunities",
-    keyword: "career,job,placement",
-  },
-  {
-    title: "Referral Portal",
-    description: "Empower referral networks for growth",
-    keyword: "referral,network,growth",
-  },
-];
+interface ContestSummary {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: string;
+  heroTitle: string | null;
+  heroSubtitle: string | null;
+  bannerImageUrl: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  createdAt: string | null;
+}
 
+const statusColors: Record<string, { bg: string; text: string; label: string }> = {
+  active: { bg: "bg-green-500/20", text: "text-green-400", label: "Active" },
+  draft: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "Draft" },
+  completed: { bg: "bg-blue-500/20", text: "text-blue-400", label: "Completed" },
+  archived: { bg: "bg-gray-500/20", text: "text-gray-400", label: "Archived" },
+};
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "TBD";
+  return new Date(dateStr).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 export default function HomePage() {
+  const { data: session } = useSession();
+  const router = useRouter();
+  const [contests, setContests] = useState<ContestSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchContests() {
+      try {
+        const res = await fetch("/api/contests");
+        if (!res.ok) throw new Error("Failed to fetch contests");
+        const data: ContestSummary[] = await res.json();
+        setContests(data);
+
+        // If there is exactly 1 active contest, redirect to it
+        const activeContests = data.filter((c) => c.status === "active");
+        if (activeContests.length === 1) {
+          router.replace(`/c/${activeContests[0].slug}`);
+          return;
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchContests();
+  }, [router]);
+
+  const isPlatformAdmin = session?.user?.globalRole === "platform_admin";
+
   return (
     <main className="min-h-screen">
       <BackgroundPattern />
 
       {/* Hero Section */}
-      <section className="relative h-screen flex items-center justify-center overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{
-            backgroundImage: `url(${getImageUrl(
-              "artificial-intelligence,cyberpunk,technology"
-            )})`,
-          }}
-        >
-          <div className="absolute inset-0 bg-black/70" />
-        </div>
-
-        <div className="relative z-10 text-center px-4">
+      <section className="relative pt-20 pb-16 px-4 md:px-8">
+        <div className="max-w-7xl mx-auto text-center">
           <motion.h1
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-7xl md:text-9xl font-black mb-6"
+            className="text-6xl md:text-8xl font-black mb-6"
             style={{
               WebkitTextStroke: "2px transparent",
               backgroundImage:
@@ -85,7 +95,7 @@ export default function HomePage() {
           >
             INNOVATION
             <br />
-            CHALLENGE
+            HUB
           </motion.h1>
 
           <motion.p
@@ -94,194 +104,148 @@ export default function HomePage() {
             transition={{ duration: 0.8, delay: 0.5 }}
             className="text-xl md:text-2xl text-gray-300 mb-8 max-w-2xl mx-auto"
           >
-            AI/Vibe Coding Hackathon - Build the Future of Education Technology
+            Explore hackathons, challenges, and innovation contests
           </motion.p>
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.8 }}
-            className="flex gap-4 justify-center flex-wrap"
-          >
-            <Link href="/register">
-              <GlowButton>Register Now</GlowButton>
-            </Link>
-            <Link href="/rules">
-              <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                View Rules
-              </button>
-            </Link>
-            <Link href="/login">
-              <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                Sign In
-              </button>
-            </Link>
-          </motion.div>
+          {isPlatformAdmin && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, delay: 0.8 }}
+            >
+              <Link href="/admin/contests/new">
+                <GlowButton>Create Contest</GlowButton>
+              </Link>
+            </motion.div>
+          )}
         </div>
-
-        <motion.div
-          animate={{ y: [0, 10, 0] }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="absolute bottom-8 left-1/2 transform -translate-x-1/2"
-        >
-          <div className="text-white/50 text-sm">Scroll to explore</div>
-          <div className="text-white/50 text-2xl text-center">↓</div>
-        </motion.div>
       </section>
 
-      {/* Tracks Section */}
-      <section className="py-20 px-4 md:px-8 relative">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          viewport={{ once: true }}
-          className="max-w-7xl mx-auto"
-        >
-          <h2 className="text-5xl md:text-6xl font-bold text-center mb-4 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-            Choose Your Track
-          </h2>
-          <p className="text-center text-gray-400 mb-12 text-lg">
-            Select one of seven innovation tracks to revolutionize
-          </p>
+      {/* Contest Listing */}
+      <section className="py-12 px-4 md:px-8 relative">
+        <div className="max-w-7xl mx-auto">
+          <motion.h2
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="text-4xl md:text-5xl font-bold text-center mb-12 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent"
+          >
+            All Contests
+          </motion.h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
-            {tracks.map((track, index) => (
+          {/* Loading State */}
+          {loading && (
+            <div className="flex justify-center py-20">
               <motion.div
-                key={track.title}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                viewport={{ once: true }}
-              >
-                <TrackCard
-                  title={track.title}
-                  description={track.description}
-                  imageKeyword={track.keyword}
-                />
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-      </section>
-
-      {/* Timeline Section */}
-      <section className="py-20 px-4 md:px-8 relative">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          viewport={{ once: true }}
-          className="max-w-4xl mx-auto"
-        >
-          <h2 className="text-5xl md:text-6xl font-bold text-center mb-16 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-            Challenge Timeline
-          </h2>
-
-          <div className="relative">
-            {/* Vertical line */}
-            <div className="absolute left-4 top-0 bottom-0 w-1 bg-gradient-to-b from-neon-purple via-electric-blue to-hot-pink" />
-
-            <div className="space-y-12">
-              {TIMELINE.map((event, index) => (
-                <TimelineNode
-                  key={event.title}
-                  date={event.date}
-                  title={event.title}
-                  description={event.description}
-                  index={index}
-                  points={event.points}
-                  details={event.details}
-                  deliverables={event.deliverables}
-                />
-              ))}
-            </div>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* Prize Pool Section */}
-      <section className="py-20 px-4 md:px-8 relative">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          viewport={{ once: true }}
-          className="max-w-6xl mx-auto"
-        >
-          <h2 className="text-5xl md:text-6xl font-bold text-center mb-4 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-            Prize Pool
-          </h2>
-          <p className="text-center text-gray-400 mb-12 text-lg">
-            Compete for amazing prizes and recognition
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {PRIZES.map((prize, index) => (
-              <PrizeCard
-                key={prize.rank}
-                rank={prize.rank}
-                amount={prize.amount}
-                color={prize.color}
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                className="w-12 h-12 border-4 border-white/20 border-t-electric-blue rounded-full"
               />
-            ))}
-          </div>
-          <p className="text-center text-gray-400 mt-8 text-sm">
-            Winners will receive nominations to the FAB awards or the &apos;Team of the Year&apos; award at the TLE Annual Day
-          </p>
-        </motion.div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-4 md:px-8 relative">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          whileInView={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6 }}
-          viewport={{ once: true }}
-          className="max-w-4xl mx-auto text-center"
-        >
-          <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-12">
-            <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-              Ready to Innovate?
-            </h2>
-            <p className="text-xl text-gray-300 mb-8">
-              Join the challenge and showcase your AI-powered solutions
-            </p>
-            <div className="flex gap-4 justify-center flex-wrap">
-              <Link href="/register">
-                <GlowButton>Get Started</GlowButton>
-              </Link>
-              <Link href="/rules">
-                <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                  Competition Rules
-                </button>
-              </Link>
-              <Link href="/login">
-                <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                  Sign In
-                </button>
-              </Link>
             </div>
-          </div>
-        </motion.div>
+          )}
+
+          {/* Error State */}
+          {error && (
+            <div className="text-center py-20">
+              <p className="text-red-400 text-lg">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-6 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loading && !error && contests.length === 0 && (
+            <div className="text-center py-20">
+              <p className="text-gray-400 text-lg">
+                No contests available yet. Check back soon!
+              </p>
+            </div>
+          )}
+
+          {/* Contest Grid */}
+          {!loading && !error && contests.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {contests.map((contest, index) => {
+                const status = statusColors[contest.status] ?? statusColors.draft;
+                return (
+                  <motion.div
+                    key={contest.id}
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                  >
+                    <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden hover:border-white/20 transition-all duration-300 group h-full flex flex-col">
+                      {/* Card Header Gradient */}
+                      <div className="h-2 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink" />
+
+                      <div className="p-6 flex flex-col flex-1">
+                        {/* Status Badge */}
+                        <div className="flex items-center justify-between mb-4">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${status.bg} ${status.text}`}
+                          >
+                            {status.label}
+                          </span>
+                        </div>
+
+                        {/* Contest Name */}
+                        <h3 className="text-2xl font-bold text-white mb-2 group-hover:bg-gradient-to-r group-hover:from-neon-purple group-hover:to-electric-blue group-hover:bg-clip-text group-hover:text-transparent transition-all">
+                          {contest.name}
+                        </h3>
+
+                        {/* Description */}
+                        {contest.description && (
+                          <p className="text-gray-400 mb-4 line-clamp-3 flex-1">
+                            {contest.description}
+                          </p>
+                        )}
+                        {!contest.description && <div className="flex-1" />}
+
+                        {/* Dates */}
+                        <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                            />
+                          </svg>
+                          <span>
+                            {formatDate(contest.startDate)} &mdash;{" "}
+                            {formatDate(contest.endDate)}
+                          </span>
+                        </div>
+
+                        {/* View Contest Button */}
+                        <Link href={`/c/${contest.slug}`} className="block">
+                          <button className="w-full px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-neon-purple/20 to-electric-blue/20 hover:from-neon-purple/40 hover:to-electric-blue/40 border border-white/10 hover:border-white/20 transition-all duration-300">
+                            View Contest
+                          </button>
+                        </Link>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Footer */}
       <footer className="py-8 px-4 border-t border-white/10">
         <div className="max-w-7xl mx-auto text-center text-gray-400">
-          <div className="flex justify-center gap-6 mb-4">
-            <Link href="/rules" className="hover:text-white transition-colors">
-              Competition Rules
-            </Link>
-            <Link href="/register" className="hover:text-white transition-colors">
-              Register
-            </Link>
-            <Link href="/login" className="hover:text-white transition-colors">
-              Sign In
-            </Link>
-          </div>
-          <p>© 2025 Innovation Challenge. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Innovation Hub. All rights reserved.</p>
         </div>
       </footer>
     </main>

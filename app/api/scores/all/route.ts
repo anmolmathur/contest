@@ -69,11 +69,11 @@ export async function GET(req: NextRequest) {
       innovationScore: score.innovationScore,
       executionScore: score.executionScore,
       weightedScore: (
-        score.aiUsageScore * 0.35 +
-        score.businessImpactScore * 0.25 +
-        score.uxScore * 0.15 +
-        score.innovationScore * 0.1 +
-        score.executionScore * 0.15
+        (score.aiUsageScore ?? 0) * 0.35 +
+        (score.businessImpactScore ?? 0) * 0.25 +
+        (score.uxScore ?? 0) * 0.15 +
+        (score.innovationScore ?? 0) * 0.1 +
+        (score.executionScore ?? 0) * 0.15
       ).toFixed(2),
       createdAt: score.createdAt,
       updatedAt: score.updatedAt,

@@ -4,18 +4,20 @@ import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { users, teams } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { isPlatformAdmin } from "@/lib/contest-auth";
 
 export async function GET() {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify user is a judge
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
+    // Verify user is a platform admin or legacy judge
+    const isAdmin = await isPlatformAdmin(session.user.id);
+    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
       return NextResponse.json(
-        { error: "Only judges can access this" },
+        { error: "Only admins can access this" },
         { status: 403 }
       );
     }
@@ -33,6 +35,7 @@ export async function GET() {
       name: user.name,
       email: user.email,
       role: user.role,
+      globalRole: user.globalRole,
       department: user.department,
       teamId: user.teamId,
       teamName: user.team?.name || null,
@@ -49,4 +52,3 @@ export async function GET() {
     );
   }
 }
-

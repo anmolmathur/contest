@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { users, teams, scores } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { isPlatformAdmin } from "@/lib/contest-auth";
 
 // GET - Get a specific user
 export async function GET(
@@ -13,14 +14,15 @@ export async function GET(
 ) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify user is a judge
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
+    // Verify user is a platform admin or legacy judge
+    const isAdmin = await isPlatformAdmin(session.user.id);
+    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
       return NextResponse.json(
-        { error: "Only judges can access this" },
+        { error: "Only admins can access this" },
         { status: 403 }
       );
     }
@@ -44,6 +46,7 @@ export async function GET(
         name: user.name,
         email: user.email,
         role: user.role,
+        globalRole: user.globalRole,
         department: user.department,
         teamId: user.teamId,
         teamName: user.team?.name || null,
@@ -66,21 +69,22 @@ export async function PUT(
 ) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify user is a judge
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
+    // Verify user is a platform admin or legacy judge
+    const isAdmin = await isPlatformAdmin(session.user.id);
+    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
       return NextResponse.json(
-        { error: "Only judges can update users" },
+        { error: "Only admins can update users" },
         { status: 403 }
       );
     }
 
     const { id } = await params;
     const body = await req.json();
-    const { name, email, password, role, department, teamId } = body;
+    const { name, email, password, role, globalRole, department, teamId } = body;
 
     // Check if user exists
     const existingUser = await db.query.users.findFirst({
@@ -109,6 +113,7 @@ export async function PUT(
     if (name !== undefined) updateData.name = name;
     if (email !== undefined) updateData.email = email;
     if (role !== undefined) updateData.role = role;
+    if (globalRole !== undefined) updateData.globalRole = globalRole;
     if (department !== undefined) updateData.department = department || null;
     if (teamId !== undefined) updateData.teamId = teamId || null;
     if (password) {
@@ -128,6 +133,7 @@ export async function PUT(
         name: updatedUser.name,
         email: updatedUser.email,
         role: updatedUser.role,
+        globalRole: updatedUser.globalRole,
         department: updatedUser.department,
         teamId: updatedUser.teamId,
       },
@@ -148,14 +154,15 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify user is a judge
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
+    // Verify user is a platform admin or legacy judge
+    const isAdmin = await isPlatformAdmin(session.user.id);
+    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
       return NextResponse.json(
-        { error: "Only judges can delete users" },
+        { error: "Only admins can delete users" },
         { status: 403 }
       );
     }
@@ -203,4 +210,3 @@ export async function DELETE(
     );
   }
 }
-

@@ -12,12 +12,14 @@ declare module "next-auth" {
       id: string;
       role: string | null;
       teamId: string | null;
+      globalRole: string;
     } & DefaultSession["user"];
   }
 
   interface User {
     role: string | null;
     teamId: string | null;
+    globalRole: string;
   }
 }
 
@@ -60,6 +62,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           image: user.image,
           role: user.role,
           teamId: user.teamId,
+          globalRole: user.globalRole,
         };
       },
     }),
@@ -70,6 +73,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id;
         token.role = user.role;
         token.teamId = user.teamId;
+        token.globalRole = user.globalRole;
       }
       return token;
     },
@@ -78,6 +82,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.id = token.id as string;
         session.user.role = token.role as string | null;
         session.user.teamId = token.teamId as string | null;
+        session.user.globalRole = (token.globalRole as string) || "user";
       }
       return session;
     },
@@ -89,4 +94,3 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     strategy: "jwt",
   },
 });
-

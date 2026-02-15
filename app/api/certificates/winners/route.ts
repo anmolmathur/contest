@@ -57,11 +57,11 @@ export async function GET(request: Request) {
           const avgWeightedScore =
             submission.scores.reduce((sum, score) => {
               const weightedScore =
-                score.aiUsageScore * SCORE_WEIGHTS.aiUsage +
-                score.businessImpactScore * SCORE_WEIGHTS.businessImpact +
-                score.uxScore * SCORE_WEIGHTS.ux +
-                score.innovationScore * SCORE_WEIGHTS.innovation +
-                score.executionScore * SCORE_WEIGHTS.execution;
+                (score.aiUsageScore ?? 0) * SCORE_WEIGHTS.aiUsage +
+                (score.businessImpactScore ?? 0) * SCORE_WEIGHTS.businessImpact +
+                (score.uxScore ?? 0) * SCORE_WEIGHTS.ux +
+                (score.innovationScore ?? 0) * SCORE_WEIGHTS.innovation +
+                (score.executionScore ?? 0) * SCORE_WEIGHTS.execution;
               return sum + weightedScore;
             }, 0) / submission.scores.length;
 

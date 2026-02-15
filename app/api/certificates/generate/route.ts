@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       CertificateDocument({
         memberName: member.name || "Participant",
         teamName: team.name,
-        track: team.track,
+        track: team.track || "",
         rank,
         rankLabel,
         template: templateData,

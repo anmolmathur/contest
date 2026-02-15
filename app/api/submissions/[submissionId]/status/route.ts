@@ -59,11 +59,11 @@ export async function GET(
     if (judgesScored > 0) {
       const totals = submission.scores.reduce(
         (acc, score) => ({
-          aiUsage: acc.aiUsage + score.aiUsageScore,
-          businessImpact: acc.businessImpact + score.businessImpactScore,
-          ux: acc.ux + score.uxScore,
-          innovation: acc.innovation + score.innovationScore,
-          execution: acc.execution + score.executionScore,
+          aiUsage: acc.aiUsage + (score.aiUsageScore ?? 0),
+          businessImpact: acc.businessImpact + (score.businessImpactScore ?? 0),
+          ux: acc.ux + (score.uxScore ?? 0),
+          innovation: acc.innovation + (score.innovationScore ?? 0),
+          execution: acc.execution + (score.executionScore ?? 0),
         }),
         { aiUsage: 0, businessImpact: 0, ux: 0, innovation: 0, execution: 0 }
       );

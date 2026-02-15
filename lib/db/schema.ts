@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique, boolean, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // Enums
@@ -21,6 +21,78 @@ export const trackEnum = pgEnum("track", [
   "Referral Portal",
 ]);
 
+export const contestStatusEnum = pgEnum("contest_status", [
+  "draft",
+  "active",
+  "completed",
+  "archived",
+]);
+
+// Contests Table
+export const contests = pgTable("contests", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
+  description: text("description"),
+  status: contestStatusEnum("status").default("draft").notNull(),
+  createdBy: uuid("created_by").notNull(),
+
+  // Landing Page Content
+  heroTitle: text("hero_title"),
+  heroSubtitle: text("hero_subtitle"),
+  heroCtaText: varchar("hero_cta_text", { length: 255 }),
+  bannerImageUrl: varchar("banner_image_url", { length: 500 }),
+
+  // Rules Page Content (markdown)
+  rulesContent: text("rules_content"),
+  eligibilityRules: text("eligibility_rules"),
+  teamStructureRules: text("team_structure_rules"),
+  deliverableRules: text("deliverable_rules"),
+
+  // Contest Configuration (JSON for flexibility)
+  // Array of {name, key, weight, description}
+  scoringCriteria: jsonb("scoring_criteria"),
+  // Array of {phase, name, maxPoints, startDate, endDate, description, details[], deliverables[]}
+  phaseConfig: jsonb("phase_config"),
+  // Array of {rank, label, amount (nullable), color}
+  prizes: jsonb("prizes"),
+  // Array of {role, maxPerTeam}
+  roleConfig: jsonb("role_config"),
+
+  maxTeams: integer("max_teams").default(50).notNull(),
+  maxApprovedTeams: integer("max_approved_teams").default(10).notNull(),
+  maxTeamMembers: integer("max_team_members").default(7).notNull(),
+
+  startDate: timestamp("start_date", { mode: "date" }),
+  endDate: timestamp("end_date", { mode: "date" }),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+});
+
+// Dynamic Tracks Table (replaces pgEnum for new contests)
+export const tracks = pgTable("tracks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  icon: varchar("icon", { length: 255 }),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+});
+
+// Contest Users Table (many-to-many with per-contest role)
+export const contestUsers = pgTable("contest_users", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: varchar("role", { length: 50 }).notNull(), // 'admin', 'judge', 'participant'
+  participantRole: varchar("participant_role", { length: 100 }), // e.g. 'Developer', 'Team Lead'
+  teamId: uuid("team_id"),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+}, (table) => ({
+  uniqueContestUser: unique().on(table.contestId, table.userId),
+}));
+
 // Users Table (Auth.js compatible)
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -29,9 +101,10 @@ export const users = pgTable("users", {
   emailVerified: timestamp("email_verified", { mode: "date" }),
   image: text("image"),
   password: text("password"),
-  role: roleEnum("role"),
+  role: roleEnum("role"), // kept for backward compat
   department: varchar("department", { length: 255 }),
-  teamId: uuid("team_id"),
+  teamId: uuid("team_id"), // kept for backward compat
+  globalRole: varchar("global_role", { length: 50 }).default("user").notNull(), // 'platform_admin' or 'user'
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 });
@@ -39,8 +112,10 @@ export const users = pgTable("users", {
 // Teams Table
 export const teams = pgTable("teams", {
   id: uuid("id").defaultRandom().primaryKey(),
-  name: varchar("name", { length: 255 }).notNull().unique(),
-  track: trackEnum("track").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  track: trackEnum("track"), // kept for backward compat, made nullable
+  contestId: uuid("contest_id").references(() => contests.id),
+  trackId: uuid("track_id").references(() => tracks.id),
   createdBy: uuid("created_by").notNull(),
   leaderId: uuid("leader_id"),
   approved: boolean("approved").default(false).notNull(),
@@ -70,11 +145,14 @@ export const scores = pgTable("scores", {
   id: uuid("id").defaultRandom().primaryKey(),
   submissionId: uuid("submission_id").notNull().references(() => submissions.id, { onDelete: "cascade" }),
   judgeId: uuid("judge_id").notNull().references(() => users.id),
-  aiUsageScore: integer("ai_usage_score").notNull(),
-  businessImpactScore: integer("business_impact_score").notNull(),
-  uxScore: integer("ux_score").notNull(),
-  innovationScore: integer("innovation_score").notNull(),
-  executionScore: integer("execution_score").notNull(),
+  // Legacy fixed columns (kept for backward compat with existing contest)
+  aiUsageScore: integer("ai_usage_score"),
+  businessImpactScore: integer("business_impact_score"),
+  uxScore: integer("ux_score"),
+  innovationScore: integer("innovation_score"),
+  executionScore: integer("execution_score"),
+  // Dynamic scoring for new contests with variable criteria
+  criteriaScores: jsonb("criteria_scores"), // e.g. {"aiUtilization": 80, "presentationCommunication": 75}
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
@@ -86,6 +164,7 @@ export const certificateTemplates = pgTable("certificate_templates", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   isDefault: boolean("is_default").default(false).notNull(),
+  contestId: uuid("contest_id").references(() => contests.id), // null = platform-wide
 
   // Text customizations
   titleText: varchar("title_text", { length: 255 }).default("Certificate of Achievement").notNull(),
@@ -140,6 +219,40 @@ export const verificationTokens = pgTable("verification_tokens", {
 }));
 
 // Relations
+export const contestsRelations = relations(contests, ({ one, many }) => ({
+  creator: one(users, {
+    fields: [contests.createdBy],
+    references: [users.id],
+  }),
+  tracks: many(tracks),
+  teams: many(teams),
+  contestUsers: many(contestUsers),
+  certificateTemplates: many(certificateTemplates),
+}));
+
+export const tracksRelations = relations(tracks, ({ one, many }) => ({
+  contest: one(contests, {
+    fields: [tracks.contestId],
+    references: [contests.id],
+  }),
+  teams: many(teams),
+}));
+
+export const contestUsersRelations = relations(contestUsers, ({ one }) => ({
+  contest: one(contests, {
+    fields: [contestUsers.contestId],
+    references: [contests.id],
+  }),
+  user: one(users, {
+    fields: [contestUsers.userId],
+    references: [users.id],
+  }),
+  team: one(teams, {
+    fields: [contestUsers.teamId],
+    references: [teams.id],
+  }),
+}));
+
 export const usersRelations = relations(users, ({ one, many }) => ({
   team: one(teams, {
     fields: [users.teamId],
@@ -148,11 +261,21 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   accounts: many(accounts),
   sessions: many(sessions),
   scores: many(scores),
+  contestUsers: many(contestUsers),
 }));
 
-export const teamsRelations = relations(teams, ({ many }) => ({
+export const teamsRelations = relations(teams, ({ one, many }) => ({
   members: many(users),
   submissions: many(submissions),
+  contest: one(contests, {
+    fields: [teams.contestId],
+    references: [contests.id],
+  }),
+  trackRef: one(tracks, {
+    fields: [teams.trackId],
+    references: [tracks.id],
+  }),
+  contestMembers: many(contestUsers),
 }));
 
 export const submissionsRelations = relations(submissions, ({ one, many }) => ({
@@ -193,5 +316,8 @@ export const certificateTemplatesRelations = relations(certificateTemplates, ({ 
     fields: [certificateTemplates.createdBy],
     references: [users.id],
   }),
+  contest: one(contests, {
+    fields: [certificateTemplates.contestId],
+    references: [contests.id],
+  }),
 }));
-

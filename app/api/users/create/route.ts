@@ -5,27 +5,29 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { isPlatformAdmin } from "@/lib/contest-auth";
 
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify user is a judge (admin)
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
+    // Verify user is a platform admin or legacy judge
+    const isAdmin = await isPlatformAdmin(session.user.id);
+    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
       return NextResponse.json(
-        { error: "Only judges can create users" },
+        { error: "Only admins can create users" },
         { status: 403 }
       );
     }
 
     const body = await req.json();
-    const { name, email, password, role, department } = body;
+    const { name, email, password, role, globalRole, department } = body;
 
-    // Validate required fields
-    if (!name || !email || !password || !role) {
+    // Validate required fields — accept either role (legacy) or globalRole (new platform admin form)
+    if (!name || !email || !password || (!role && !globalRole)) {
       return NextResponse.json(
         { error: "Missing required fields: name, email, password, and role are required" },
         { status: 400 }
@@ -54,7 +56,8 @@ export async function POST(req: NextRequest) {
         name,
         email,
         password: hashedPassword,
-        role,
+        role: role || null,
+        globalRole: globalRole || "user",
         department: department || null,
       })
       .returning();
@@ -67,6 +70,7 @@ export async function POST(req: NextRequest) {
           name: newUser.name,
           email: newUser.email,
           role: newUser.role,
+          globalRole: newUser.globalRole,
           department: newUser.department,
         },
       },
