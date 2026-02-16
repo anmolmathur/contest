@@ -70,7 +70,7 @@ export default function ContestPage() {
             transition={{ duration: 0.5, delay: 0.8 }}
             className="flex gap-4 justify-center flex-wrap"
           >
-            <Link href={`/c/${slug}/register`}>
+            <Link href="/register">
               <GlowButton>{heroCtaText}</GlowButton>
             </Link>
             <Link href={`/c/${slug}/rules`}>
@@ -229,7 +229,7 @@ export default function ContestPage() {
               Join the challenge and showcase your AI-powered solutions
             </p>
             <div className="flex gap-4 justify-center flex-wrap">
-              <Link href={`/c/${slug}/register`}>
+              <Link href="/register">
                 <GlowButton>Get Started</GlowButton>
               </Link>
               <Link href={`/c/${slug}/rules`}>
@@ -258,7 +258,7 @@ export default function ContestPage() {
               Competition Rules
             </Link>
             <Link
-              href={`/c/${slug}/register`}
+              href="/register"
               className="hover:text-white transition-colors"
             >
               Register
