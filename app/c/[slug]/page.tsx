@@ -127,7 +127,7 @@ export default function ContestPage() {
                     title={track.name}
                     description={track.description || ""}
                     imageKeyword={
-                      track.icon || track.name.toLowerCase().replace(/\s+/g, ",")
+                      track.name.toLowerCase().replace(/\s+/g, ",")
                     }
                   />
                 </motion.div>
