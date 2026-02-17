@@ -203,7 +203,7 @@ export default function ContestPage() {
                 <PrizeCard
                   key={`prize-${prize.rank}`}
                   rank={prize.label}
-                  amount={prize.amount ?? 0}
+                  amount={prize.amount}
                   color={prize.color as "gold" | "silver" | "bronze" | "copper" | "steel"}
                 />
               ))}
