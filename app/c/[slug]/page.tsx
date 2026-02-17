@@ -157,10 +157,15 @@ export default function ContestPage() {
 
               <div className="space-y-12">
                 {contest.phaseConfig.map((phase, index) => {
+                  const fmtDate = (d: string) => {
+                    try {
+                      return new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+                    } catch { return d; }
+                  };
                   const dateLabel =
                     phase.startDate && phase.endDate
-                      ? `${phase.startDate} - ${phase.endDate}`
-                      : phase.startDate || phase.endDate || `Phase ${phase.phase}`;
+                      ? `${fmtDate(phase.startDate)} - ${fmtDate(phase.endDate)}`
+                      : phase.startDate ? fmtDate(phase.startDate) : phase.endDate ? fmtDate(phase.endDate) : `Phase ${phase.phase}`;
 
                   return (
                     <TimelineNode

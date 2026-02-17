@@ -1462,7 +1462,15 @@ export default function ContestAdminPage() {
                           <Label className="text-gray-300 text-xs">Max Points</Label>
                           <Input type="number" value={phase.maxPoints} onChange={(e) => updatePhaseConfig(index, "maxPoints", parseInt(e.target.value) || 0)} className="bg-white/5 border-white/10 text-white text-sm" />
                         </div>
-                        <div className="md:col-span-3">
+                        <div>
+                          <Label className="text-gray-300 text-xs">Start Date</Label>
+                          <Input type="date" value={phase.startDate || ""} onChange={(e) => updatePhaseConfig(index, "startDate", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm [color-scheme:dark]" />
+                        </div>
+                        <div>
+                          <Label className="text-gray-300 text-xs">End Date</Label>
+                          <Input type="date" value={phase.endDate || ""} onChange={(e) => updatePhaseConfig(index, "endDate", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm [color-scheme:dark]" />
+                        </div>
+                        <div>
                           <Label className="text-gray-300 text-xs">Description</Label>
                           <Input value={phase.description} onChange={(e) => updatePhaseConfig(index, "description", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" />
                         </div>
