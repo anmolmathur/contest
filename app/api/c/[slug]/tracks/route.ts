@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tracks, contests } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { resolveContest, canAdminContest } from "@/lib/contest-auth";
 
 // GET /api/c/[slug]/tracks - List all tracks for a contest (public)
@@ -60,12 +60,22 @@ export async function POST(
       return NextResponse.json({ error: "Track name is required" }, { status: 400 });
     }
 
+    // Auto-assign next sortOrder if not provided
+    let effectiveSortOrder = sortOrder;
+    if (effectiveSortOrder === undefined || effectiveSortOrder === null) {
+      const [maxResult] = await db
+        .select({ maxOrder: sql<number>`COALESCE(MAX(${tracks.sortOrder}), -1)` })
+        .from(tracks)
+        .where(eq(tracks.contestId, contest.id));
+      effectiveSortOrder = (maxResult?.maxOrder ?? -1) + 1;
+    }
+
     const [newTrack] = await db.insert(tracks).values({
       contestId: contest.id,
       name,
       description: description || null,
       icon: icon || null,
-      sortOrder: sortOrder ?? 0,
+      sortOrder: effectiveSortOrder,
     }).returning();
 
     return NextResponse.json(newTrack, { status: 201 });

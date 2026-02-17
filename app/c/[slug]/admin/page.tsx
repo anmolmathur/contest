@@ -497,6 +497,43 @@ export default function ContestAdminPage() {
     }
   };
 
+  const handleMoveTrack = async (trackId: string, direction: "up" | "down") => {
+    const sorted = [...tracks].sort((a, b) => a.sortOrder - b.sortOrder);
+    const idx = sorted.findIndex((t) => t.id === trackId);
+    if (idx < 0) return;
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+
+    // Swap sortOrder values between the two tracks
+    const currentTrack = sorted[idx];
+    const swapTrack = sorted[swapIdx];
+
+    setError("");
+    try {
+      // Update both tracks' sortOrder
+      const [res1, res2] = await Promise.all([
+        fetch(`/api/c/${slug}/tracks/${currentTrack.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sortOrder: swapTrack.sortOrder }),
+        }),
+        fetch(`/api/c/${slug}/tracks/${swapTrack.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sortOrder: currentTrack.sortOrder }),
+        }),
+      ]);
+
+      if (!res1.ok || !res2.ok) {
+        setError("Failed to reorder tracks");
+        return;
+      }
+      loadTracks();
+    } catch {
+      setError("Failed to reorder tracks");
+    }
+  };
+
   // -----------------------------------------------------------------------
   // Team actions
   // -----------------------------------------------------------------------
@@ -1025,16 +1062,40 @@ export default function ContestAdminPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="border-white/10">
-                        <TableHead className="text-gray-400">Order</TableHead>
+                        <TableHead className="text-gray-400 w-24">Order</TableHead>
                         <TableHead className="text-gray-400">Name</TableHead>
                         <TableHead className="text-gray-400">Description</TableHead>
                         <TableHead className="text-gray-400 text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tracks.sort((a, b) => a.sortOrder - b.sortOrder).map((track) => (
+                      {tracks.sort((a, b) => a.sortOrder - b.sortOrder).map((track, idx, sortedArr) => (
                         <TableRow key={track.id} className="border-white/10">
-                          <TableCell className="text-gray-400">{track.sortOrder}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-400 w-6 text-center">{idx + 1}</span>
+                              <div className="flex flex-col">
+                                <Button
+                                  onClick={() => handleMoveTrack(track.id, "up")}
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={idx === 0}
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:cursor-not-allowed"
+                                >
+                                  <ArrowUp size={14} />
+                                </Button>
+                                <Button
+                                  onClick={() => handleMoveTrack(track.id, "down")}
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={idx === sortedArr.length - 1}
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:cursor-not-allowed"
+                                >
+                                  <ArrowDown size={14} />
+                                </Button>
+                              </div>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-white font-semibold">{track.name}</TableCell>
                           <TableCell className="text-gray-400 max-w-xs truncate">{track.description || "-"}</TableCell>
                           <TableCell className="text-right">
