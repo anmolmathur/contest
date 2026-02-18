@@ -31,11 +31,31 @@ export default function LoginPage() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        // Redirect to callbackUrl if user was trying to access a protected page,
-        // otherwise go to homepage which auto-redirects to the active contest
+        // Redirect to callbackUrl if user was trying to access a protected page
         const params = new URLSearchParams(window.location.search);
         const callbackUrl = params.get("callbackUrl");
-        router.push(callbackUrl || "/");
+        if (callbackUrl) {
+          router.push(callbackUrl);
+          router.refresh();
+          return;
+        }
+
+        // Otherwise, find the active contest and go directly to its dashboard
+        try {
+          const res = await fetch("/api/contests");
+          if (res.ok) {
+            const contests = await res.json();
+            const active = contests.filter((c: { status: string }) => c.status === "active");
+            if (active.length === 1) {
+              router.push(`/c/${active[0].slug}/dashboard`);
+              router.refresh();
+              return;
+            }
+          }
+        } catch {
+          // fallback to homepage if fetch fails
+        }
+        router.push("/");
         router.refresh();
       }
     } catch (error) {

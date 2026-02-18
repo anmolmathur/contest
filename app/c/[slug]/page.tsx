@@ -1,6 +1,7 @@
 "use client";
 
 import { useContest } from "@/lib/contest-context";
+import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import GlowButton from "@/components/GlowButton";
@@ -12,6 +13,9 @@ import { getImageUrl } from "@/lib/imageHelper";
 
 export default function ContestPage() {
   const { contest } = useContest();
+  const { data: session } = useSession();
+  const isLoggedIn = !!session?.user;
+  const isPlatformAdmin = session?.user?.globalRole === "platform_admin";
 
   const heroTitle = contest.heroTitle || contest.name;
   const heroSubtitle = contest.heroSubtitle || contest.description || "";
@@ -70,19 +74,41 @@ export default function ContestPage() {
             transition={{ duration: 0.5, delay: 0.8 }}
             className="flex gap-4 justify-center flex-wrap"
           >
-            <Link href="/register">
-              <GlowButton>{heroCtaText}</GlowButton>
-            </Link>
-            <Link href={`/c/${slug}/rules`}>
-              <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                View Rules
-              </button>
-            </Link>
-            <Link href="/login">
-              <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                Sign In
-              </button>
-            </Link>
+            {isLoggedIn ? (
+              <>
+                <Link href={`/c/${slug}/dashboard`}>
+                  <GlowButton>Go to Dashboard</GlowButton>
+                </Link>
+                <Link href={`/c/${slug}/rules`}>
+                  <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                    View Rules
+                  </button>
+                </Link>
+                {isPlatformAdmin && (
+                  <Link href="/platform/admin">
+                    <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                      Platform Admin
+                    </button>
+                  </Link>
+                )}
+              </>
+            ) : (
+              <>
+                <Link href="/register">
+                  <GlowButton>{heroCtaText}</GlowButton>
+                </Link>
+                <Link href={`/c/${slug}/rules`}>
+                  <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                    View Rules
+                  </button>
+                </Link>
+                <Link href="/login">
+                  <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                    Sign In
+                  </button>
+                </Link>
+              </>
+            )}
           </motion.div>
         </div>
 
@@ -234,19 +260,41 @@ export default function ContestPage() {
               Join the challenge and showcase your AI-powered solutions
             </p>
             <div className="flex gap-4 justify-center flex-wrap">
-              <Link href="/register">
-                <GlowButton>Get Started</GlowButton>
-              </Link>
-              <Link href={`/c/${slug}/rules`}>
-                <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                  Competition Rules
-                </button>
-              </Link>
-              <Link href="/login">
-                <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
-                  Sign In
-                </button>
-              </Link>
+              {isLoggedIn ? (
+                <>
+                  <Link href={`/c/${slug}/dashboard`}>
+                    <GlowButton>Go to Dashboard</GlowButton>
+                  </Link>
+                  <Link href={`/c/${slug}/rules`}>
+                    <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                      Competition Rules
+                    </button>
+                  </Link>
+                  {isPlatformAdmin && (
+                    <Link href="/platform/admin">
+                      <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                        Platform Admin
+                      </button>
+                    </Link>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Link href="/register">
+                    <GlowButton>Get Started</GlowButton>
+                  </Link>
+                  <Link href={`/c/${slug}/rules`}>
+                    <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                      Competition Rules
+                    </button>
+                  </Link>
+                  <Link href="/login">
+                    <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
+                      Sign In
+                    </button>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </motion.div>
@@ -262,15 +310,26 @@ export default function ContestPage() {
             >
               Competition Rules
             </Link>
-            <Link
-              href="/register"
-              className="hover:text-white transition-colors"
-            >
-              Register
-            </Link>
-            <Link href="/login" className="hover:text-white transition-colors">
-              Sign In
-            </Link>
+            {isLoggedIn ? (
+              <Link
+                href={`/c/${slug}/dashboard`}
+                className="hover:text-white transition-colors"
+              >
+                Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/register"
+                  className="hover:text-white transition-colors"
+                >
+                  Register
+                </Link>
+                <Link href="/login" className="hover:text-white transition-colors">
+                  Sign In
+                </Link>
+              </>
+            )}
           </div>
           <p>
             &copy; {new Date().getFullYear()} {contest.name}. All rights

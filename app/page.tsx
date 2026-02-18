@@ -56,7 +56,11 @@ export default function HomePage() {
         // If there is exactly 1 active contest, redirect to it
         const activeContests = data.filter((c) => c.status === "active");
         if (activeContests.length === 1) {
-          router.replace(`/c/${activeContests[0].slug}`);
+          // Logged-in users go straight to dashboard, others to landing page
+          const dest = session?.user
+            ? `/c/${activeContests[0].slug}/dashboard`
+            : `/c/${activeContests[0].slug}`;
+          router.replace(dest);
           return;
         }
       } catch (err) {
@@ -67,7 +71,7 @@ export default function HomePage() {
     }
 
     fetchContests();
-  }, [router]);
+  }, [router, session]);
 
   const isPlatformAdmin = session?.user?.globalRole === "platform_admin";
 
