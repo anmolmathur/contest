@@ -219,6 +219,23 @@ export default function ContestDashboardPage() {
         });
         return;
       }
+
+      // If user is not enrolled (404), auto-enroll them as participant
+      if (res.status === 404) {
+        const enrollRes = await fetch(`${apiBase}/users/enroll`, {
+          method: "POST",
+        });
+        if (enrollRes.ok) {
+          const data = await enrollRes.json();
+          setContestMembership({
+            id: data.id,
+            role: data.role ?? "participant",
+            participantRole: data.participantRole ?? null,
+            teamId: data.teamId ?? null,
+          });
+          return;
+        }
+      }
     } catch {
       // endpoint may not exist yet
     }
@@ -617,12 +634,26 @@ export default function ContestDashboardPage() {
   // Handlers — Profile
   // -----------------------------------------------------------------------
 
-  const handleOpenEditProfile = () => {
+  const handleOpenEditProfile = async () => {
+    // Pre-load current profile data so existing values are visible
     setProfileForm({
       name: session?.user?.name || "",
       department: "",
     });
     setEditProfileOpen(true);
+
+    try {
+      const res = await fetch("/api/users/profile");
+      if (res.ok) {
+        const data = await res.json();
+        setProfileForm({
+          name: data.user.name || "",
+          department: data.user.department || "",
+        });
+      }
+    } catch {
+      // If fetch fails, we still show the dialog with session data
+    }
   };
 
   const handleUpdateProfile = async () => {

@@ -377,12 +377,26 @@ export default function DashboardPage() {
     setSubmitForm({ ...submitForm, aiScreenshots: newScreenshots });
   };
 
-  const handleOpenEditProfile = () => {
+  const handleOpenEditProfile = async () => {
+    // Pre-load current profile data so existing values are visible
     setProfileForm({
       name: session?.user?.name || "",
       department: "",
     });
     setEditProfileOpen(true);
+
+    try {
+      const res = await fetch("/api/users/profile");
+      if (res.ok) {
+        const data = await res.json();
+        setProfileForm({
+          name: data.user.name || "",
+          department: data.user.department || "",
+        });
+      }
+    } catch {
+      // If fetch fails, we still show the dialog with session data
+    }
   };
 
   const handleUpdateProfile = async () => {
