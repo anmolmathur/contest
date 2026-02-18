@@ -2,6 +2,7 @@ export interface CertificateTemplate {
   id?: string;
   name?: string;
   isDefault?: boolean;
+  contestId?: string | null;
   titleText: string;
   subtitleText: string;
   eventName: string;
@@ -27,11 +28,7 @@ export interface WinningTeam {
   track: string;
   leaderId: string | null;
   members: TeamMember[];
-  phaseScores: {
-    phase2: number;
-    phase3: number;
-    phase4: number;
-  };
+  phaseScores: Record<string, number>;
   totalScore: number;
   rank: number;
   rankLabel: string;

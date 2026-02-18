@@ -1298,7 +1298,7 @@ export default function ContestAdminPage() {
           {/* CERTIFICATES TAB                                               */}
           {/* ============================================================= */}
           {activeTab === "certificates" && (
-            <CertificateTab setError={setError} setSuccess={setSuccess} />
+            <CertificateTab slug={slug} setError={setError} setSuccess={setSuccess} />
           )}
 
           {/* ============================================================= */}

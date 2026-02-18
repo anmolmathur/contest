@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, submissions, scores, contests, contestUsers } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
 
 interface ScoringCriterion {
@@ -82,12 +82,25 @@ export async function GET(
       return NextResponse.json({ scores: [] }, { status: 200 });
     }
 
-    // Get scores with related data
-    let allScores;
+    // Get submissions for contest teams to get their IDs for DB-level filtering
+    const contestSubmissions = await db.query.submissions.findMany({
+      where: inArray(submissions.teamId, contestTeamIds.length > 0 ? contestTeamIds : ["__none__"]),
+      columns: { id: true },
+    });
+    const contestSubmissionIds = contestSubmissions.map((s) => s.id);
+
+    if (contestSubmissionIds.length === 0) {
+      return NextResponse.json({ scores: [] }, { status: 200 });
+    }
+
+    // Get scores filtered at DB level by submission IDs (and optionally judge)
+    let contestScores;
     if (judgeOnly) {
-      // Only get scores for the current judge
-      allScores = await db.query.scores.findMany({
-        where: eq(scores.judgeId, session.user.id),
+      contestScores = await db.query.scores.findMany({
+        where: and(
+          inArray(scores.submissionId, contestSubmissionIds),
+          eq(scores.judgeId, session.user.id)
+        ),
         with: {
           submission: {
             with: {
@@ -98,8 +111,8 @@ export async function GET(
         },
       });
     } else {
-      // Get all scores
-      allScores = await db.query.scores.findMany({
+      contestScores = await db.query.scores.findMany({
+        where: inArray(scores.submissionId, contestSubmissionIds),
         with: {
           submission: {
             with: {
@@ -110,12 +123,6 @@ export async function GET(
         },
       });
     }
-
-    // Filter to only scores for submissions from teams in this contest
-    const contestScores = allScores.filter(
-      (s) =>
-        s.submission?.team?.contestId === contest.id
-    );
 
     const scoringCriteria = (contest.scoringCriteria as ScoringCriterion[]) || [];
 

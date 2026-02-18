@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, submissions, scores, contests, contestUsers } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
 
 interface ScoringCriterion {
@@ -54,8 +54,9 @@ export async function GET(
       return NextResponse.json({ submissions: [] }, { status: 200 });
     }
 
-    // Get all submissions for teams in this contest
-    const allSubmissions = await db.query.submissions.findMany({
+    // Get submissions filtered at DB level by contest team IDs
+    const contestSubmissions = await db.query.submissions.findMany({
+      where: inArray(submissions.teamId, contestTeamIds),
       with: {
         team: true,
         scores: {
@@ -66,11 +67,6 @@ export async function GET(
       },
       orderBy: (submissions, { desc }) => [desc(submissions.submittedAt)],
     });
-
-    // Filter to only submissions from teams in this contest
-    const contestSubmissions = allSubmissions.filter((s) =>
-      contestTeamIds.includes(s.teamId)
-    );
 
     // Count total judges for this contest
     const contestJudges = await db.query.contestUsers.findMany({

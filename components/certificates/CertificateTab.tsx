@@ -38,6 +38,7 @@ import {
 import { CertificateTemplate, WinningTeam, TeamMember } from "./types";
 
 interface CertificateTabProps {
+  slug?: string;
   setError: (error: string) => void;
   setSuccess: (success: string) => void;
 }
@@ -58,7 +59,9 @@ const RANK_BG = {
   steel: "bg-slate-500 border-slate-600 text-white font-bold",
 };
 
-export default function CertificateTab({ setError, setSuccess }: CertificateTabProps) {
+export default function CertificateTab({ slug, setError, setSuccess }: CertificateTabProps) {
+  // Use contest-scoped APIs when slug is provided, legacy APIs otherwise
+  const apiBase = slug ? `/api/c/${slug}/certificates` : "/api/certificates";
   const [loading, setLoading] = useState(true);
   const [winners, setWinners] = useState<WinningTeam[]>([]);
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
@@ -97,7 +100,7 @@ export default function CertificateTab({ setError, setSuccess }: CertificateTabP
 
   const loadWinners = async () => {
     try {
-      const res = await fetch("/api/certificates/winners?limit=5");
+      const res = await fetch(`${apiBase}/winners?limit=5`);
       const data = await res.json();
       setWinners(data.winners || []);
     } catch (err) {
@@ -108,7 +111,7 @@ export default function CertificateTab({ setError, setSuccess }: CertificateTabP
 
   const loadTemplates = async () => {
     try {
-      const res = await fetch("/api/certificates/templates");
+      const res = await fetch(`${apiBase}/templates`);
       const data = await res.json();
       setTemplates(data.templates || []);
 
@@ -125,7 +128,7 @@ export default function CertificateTab({ setError, setSuccess }: CertificateTabP
   const handleDownloadCertificate = async (member: TeamMember, team: WinningTeam) => {
     try {
       setDownloadingMember(member.id);
-      const res = await fetch("/api/certificates/generate", {
+      const res = await fetch(`${apiBase}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -196,7 +199,7 @@ export default function CertificateTab({ setError, setSuccess }: CertificateTabP
   };
 
   const handleDownloadCertificateQuiet = async (member: TeamMember, team: WinningTeam) => {
-    const res = await fetch("/api/certificates/generate", {
+    const res = await fetch(`${apiBase}/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -266,8 +269,8 @@ export default function CertificateTab({ setError, setSuccess }: CertificateTabP
 
     try {
       const url = editingTemplate
-        ? `/api/certificates/templates/${editingTemplate.id}`
-        : "/api/certificates/templates";
+        ? `${apiBase}/templates/${editingTemplate.id}`
+        : `${apiBase}/templates`;
 
       const res = await fetch(url, {
         method: editingTemplate ? "PUT" : "POST",
@@ -294,7 +297,7 @@ export default function CertificateTab({ setError, setSuccess }: CertificateTabP
     if (!confirm("Are you sure you want to delete this template?")) return;
 
     try {
-      const res = await fetch(`/api/certificates/templates/${templateId}`, {
+      const res = await fetch(`${apiBase}/templates/${templateId}`, {
         method: "DELETE",
       });
 

@@ -1,7 +1,6 @@
 import { db } from "@/lib/db";
 import { contests, contestUsers, users, teams } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { JUDGE_EMAILS } from "@/lib/constants";
 
 export type ContestRole = "admin" | "judge" | "participant";
 
@@ -54,11 +53,10 @@ export async function getContestUser(userId: string, contestId: string) {
 export async function isPlatformAdmin(userId: string): Promise<boolean> {
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
-    columns: { globalRole: true, email: true },
+    columns: { globalRole: true },
   });
   if (!user) return false;
-  // Also check legacy JUDGE_EMAILS for backward compat
-  return user.globalRole === "platform_admin" || JUDGE_EMAILS.includes(user.email);
+  return user.globalRole === "platform_admin";
 }
 
 /**
@@ -122,10 +120,10 @@ export async function resolveContest(slug: string) {
 }
 
 /**
- * Check if user is a judge or admin for a contest, with fallback to legacy JUDGE_EMAILS
- * This is the primary authorization check that replaces JUDGE_EMAILS.includes() throughout the app
+ * Check if user is a judge or admin for a contest.
+ * Uses per-contest roles from contest_users table + platform admin check.
  */
-export async function canJudgeContest(userId: string, contestId: string, userEmail?: string): Promise<boolean> {
+export async function canJudgeContest(userId: string, contestId: string, _userEmail?: string): Promise<boolean> {
   // Check contest-specific role
   const contestRole = await getUserContestRole(userId, contestId);
   if (contestRole === "judge" || contestRole === "admin") return true;
@@ -134,16 +132,14 @@ export async function canJudgeContest(userId: string, contestId: string, userEma
   const platformAdmin = await isPlatformAdmin(userId);
   if (platformAdmin) return true;
 
-  // Legacy fallback: check JUDGE_EMAILS
-  if (userEmail && JUDGE_EMAILS.includes(userEmail)) return true;
-
   return false;
 }
 
 /**
- * Check if user can administrate a contest, with fallback to legacy JUDGE_EMAILS
+ * Check if user can administrate a contest.
+ * Uses per-contest roles from contest_users table + platform admin check.
  */
-export async function canAdminContest(userId: string, contestId: string, userEmail?: string): Promise<boolean> {
+export async function canAdminContest(userId: string, contestId: string, _userEmail?: string): Promise<boolean> {
   // Check contest-specific role
   const contestRole = await getUserContestRole(userId, contestId);
   if (contestRole === "admin") return true;
@@ -151,9 +147,6 @@ export async function canAdminContest(userId: string, contestId: string, userEma
   // Check platform admin
   const platformAdmin = await isPlatformAdmin(userId);
   if (platformAdmin) return true;
-
-  // Legacy fallback: check JUDGE_EMAILS
-  if (userEmail && JUDGE_EMAILS.includes(userEmail)) return true;
 
   return false;
 }
