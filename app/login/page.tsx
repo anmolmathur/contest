@@ -31,7 +31,11 @@ export default function LoginPage() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        router.push("/dashboard");
+        // Redirect to callbackUrl if user was trying to access a protected page,
+        // otherwise go to homepage which auto-redirects to the active contest
+        const params = new URLSearchParams(window.location.search);
+        const callbackUrl = params.get("callbackUrl");
+        router.push(callbackUrl || "/");
         router.refresh();
       }
     } catch (error) {
