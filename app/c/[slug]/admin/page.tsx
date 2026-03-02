@@ -186,6 +186,7 @@ export default function ContestAdminPage() {
   const [editRoleOpen, setEditRoleOpen] = useState(false);
   const [editRoleUser, setEditRoleUser] = useState<ContestUserEntry | null>(null);
   const [editRoleValue, setEditRoleValue] = useState("");
+  const [editParticipantRole, setEditParticipantRole] = useState("");
 
   const [trackDialogOpen, setTrackDialogOpen] = useState(false);
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
@@ -394,7 +395,7 @@ export default function ContestAdminPage() {
       const res = await fetch(`/api/c/${slug}/users/${editRoleUser.id}/role`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: editRoleValue }),
+        body: JSON.stringify({ role: editRoleValue, participantRole: editRoleValue === "participant" ? editParticipantRole : undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -979,7 +980,7 @@ export default function ContestAdminPage() {
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
                             <Button
-                              onClick={() => { setEditRoleUser(cu); setEditRoleValue(cu.role); setEditRoleOpen(true); }}
+                              onClick={() => { setEditRoleUser(cu); setEditRoleValue(cu.role); setEditParticipantRole(cu.participantRole || ""); setEditRoleOpen(true); }}
                               variant="ghost" size="sm"
                               className="text-electric-blue hover:text-electric-blue hover:bg-electric-blue/10"
                             >
@@ -1666,6 +1667,19 @@ export default function ContestAdminPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {editRoleValue === "participant" && contest.roleConfig && contest.roleConfig.length > 0 && (
+                <div>
+                  <Label className="text-gray-200">Participant Role</Label>
+                  <Select value={editParticipantRole} onValueChange={setEditParticipantRole}>
+                    <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue placeholder="Select participant role" /></SelectTrigger>
+                    <SelectContent>
+                      {contest.roleConfig.map((rc) => (
+                        <SelectItem key={rc.role} value={rc.role}>{rc.role}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <Button onClick={handleChangeRole} className="w-full bg-gradient-to-r from-neon-purple to-electric-blue">
                 Update Role
               </Button>

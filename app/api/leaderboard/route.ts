@@ -6,10 +6,16 @@ import { SCORE_WEIGHTS, PHASE_MAX_POINTS } from "@/lib/constants";
 
 export async function GET() {
   try {
-    // Get only approved teams with their members
+    // Get only approved teams with their members and track
     const allTeams = await db.query.teams.findMany({
       where: eq(teams.approved, true),
       with: {
+        trackRef: {
+          columns: {
+            id: true,
+            name: true,
+          },
+        },
         members: {
           columns: {
             id: true,
@@ -76,7 +82,7 @@ export async function GET() {
         return {
           teamId: team.id,
           teamName: team.name,
-          track: team.track,
+          track: team.trackRef?.name || team.track,
           leaderId: team.leaderId,
           members: team.members.map((member) => ({
             id: member.id,

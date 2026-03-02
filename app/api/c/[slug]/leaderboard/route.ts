@@ -82,13 +82,19 @@ export async function GET(
       }
     }
 
-    // Get only approved teams for this contest with their members
+    // Get only approved teams for this contest with their members and track
     const approvedTeams = await db.query.teams.findMany({
       where: and(
         eq(teams.contestId, contest.id),
         eq(teams.approved, true)
       ),
       with: {
+        trackRef: {
+          columns: {
+            id: true,
+            name: true,
+          },
+        },
         contestMembers: {
           where: eq(contestUsers.contestId, contest.id),
           with: {
@@ -172,7 +178,7 @@ export async function GET(
         return {
           teamId: team.id,
           teamName: team.name,
-          track: team.track || null,
+          track: team.trackRef?.name || team.track || null,
           trackId: team.trackId || null,
           leaderId: team.leaderId,
           members,
