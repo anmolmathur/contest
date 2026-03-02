@@ -55,6 +55,7 @@ import {
   DEFAULT_MAX_TEAMS,
   DEFAULT_MAX_APPROVED_TEAMS,
   DEFAULT_MAX_TEAM_MEMBERS,
+  ROLES,
 } from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,7 @@ export default function PlatformAdminPage() {
     name: "",
     email: "",
     globalRole: "user",
+    role: "",
   });
 
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
@@ -323,6 +325,7 @@ export default function PlatformAdminPage() {
       name: user.name || "",
       email: user.email,
       globalRole: user.globalRole,
+      role: user.role || "",
     });
     setEditUserOpen(true);
   };
@@ -960,6 +963,17 @@ export default function PlatformAdminPage() {
                 <SelectContent>
                   <SelectItem value="user">User</SelectItem>
                   <SelectItem value="platform_admin">Platform Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-gray-200">Participant Role</Label>
+              <Select value={editUserForm.role} onValueChange={(v) => setEditUserForm({ ...editUserForm, role: v })}>
+                <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue placeholder="Select role" /></SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>{role}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
