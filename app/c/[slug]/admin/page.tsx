@@ -275,7 +275,7 @@ export default function ContestAdminPage() {
     try {
       const res = await fetch(`/api/c/${slug}/teams/all`);
       const data = await res.json();
-      setTeams(data.teams || []);
+      setTeams((data.teams || []).map((t: any) => ({ ...t, trackName: t.trackRef?.name || null })));
     } catch (err) {
       console.error("Error loading teams:", err);
     }
