@@ -21,6 +21,9 @@ export default function ContestPage() {
   const heroSubtitle = contest.heroSubtitle || contest.description || "";
   const heroCtaText = contest.heroCtaText || "Register Now";
   const slug = contest.slug;
+  const isRegistrationClosed = contest.registrationDeadline
+    ? new Date() > new Date(contest.registrationDeadline)
+    : false;
 
   return (
     <main className="min-h-screen">
@@ -94,9 +97,15 @@ export default function ContestPage() {
               </>
             ) : (
               <>
-                <Link href="/register">
-                  <GlowButton>{heroCtaText}</GlowButton>
-                </Link>
+                {isRegistrationClosed ? (
+                  <span className="px-8 py-4 rounded-xl font-bold text-red-300 bg-red-500/10 border border-red-500/20">
+                    Registration Closed
+                  </span>
+                ) : (
+                  <Link href="/register">
+                    <GlowButton>{heroCtaText}</GlowButton>
+                  </Link>
+                )}
                 <Link href={`/c/${slug}/rules`}>
                   <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
                     View Rules
@@ -280,9 +289,15 @@ export default function ContestPage() {
                 </>
               ) : (
                 <>
-                  <Link href="/register">
-                    <GlowButton>Get Started</GlowButton>
-                  </Link>
+                  {isRegistrationClosed ? (
+                    <span className="px-8 py-4 rounded-xl font-bold text-red-300 bg-red-500/10 border border-red-500/20">
+                      Registration Closed
+                    </span>
+                  ) : (
+                    <Link href="/register">
+                      <GlowButton>Get Started</GlowButton>
+                    </Link>
+                  )}
                   <Link href={`/c/${slug}/rules`}>
                     <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
                       Competition Rules
@@ -319,12 +334,14 @@ export default function ContestPage() {
               </Link>
             ) : (
               <>
-                <Link
-                  href="/register"
-                  className="hover:text-white transition-colors"
-                >
-                  Register
-                </Link>
+                {!isRegistrationClosed && (
+                  <Link
+                    href="/register"
+                    className="hover:text-white transition-colors"
+                  >
+                    Register
+                  </Link>
+                )}
                 <Link href="/login" className="hover:text-white transition-colors">
                   Sign In
                 </Link>

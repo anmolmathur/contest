@@ -109,6 +109,10 @@ export default function ContestDashboardPage() {
     useState<ContestMembership | null>(null);
   const [membershipLoading, setMembershipLoading] = useState(true);
 
+  const isRegistrationClosed = contest.registrationDeadline
+    ? new Date() > new Date(contest.registrationDeadline)
+    : false;
+
   // Team state
   const [team, setTeam] = useState<Team | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -1048,7 +1052,7 @@ export default function ContestDashboardPage() {
                         >
                           <DialogTrigger asChild>
                             <Button
-                              disabled={teamCount >= maxTeams}
+                              disabled={teamCount >= maxTeams || isRegistrationClosed}
                               className="bg-gradient-to-r from-neon-purple to-electric-blue"
                               onClick={() => setCreateTeamOpen(true)}
                             >
@@ -1119,9 +1123,9 @@ export default function ContestDashboardPage() {
                         </Dialog>
                       </div>
                     </TooltipTrigger>
-                    {teamCount >= maxTeams && (
+                    {(teamCount >= maxTeams || isRegistrationClosed) && (
                       <TooltipContent>
-                        <p>All {maxTeams} team slots are full</p>
+                        <p>{isRegistrationClosed ? "Registration deadline has passed" : `All ${maxTeams} team slots are full`}</p>
                       </TooltipContent>
                     )}
                   </Tooltip>

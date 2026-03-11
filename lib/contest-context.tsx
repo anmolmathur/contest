@@ -63,6 +63,7 @@ export interface Contest {
   maxTeamMembers: number;
   startDate: string | null;
   endDate: string | null;
+  registrationDeadline: string | null;
   tracks: ContestTrack[];
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "contests" ADD COLUMN "registration_deadline" timestamp;

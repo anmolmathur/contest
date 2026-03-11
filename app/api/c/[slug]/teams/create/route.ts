@@ -22,6 +22,14 @@ export async function POST(
       return NextResponse.json({ error: "Contest not found" }, { status: 404 });
     }
 
+    // Check registration deadline
+    if (contest.registrationDeadline && new Date() > new Date(contest.registrationDeadline)) {
+      return NextResponse.json(
+        { error: "Registration deadline has passed. Team creation is no longer allowed." },
+        { status: 403 }
+      );
+    }
+
     // Check user is a participant in this contest (or admin)
     const contestUser = await getContestUser(session.user.id, contest.id);
     const isAdmin = await canAdminContest(session.user.id, contest.id, session.user.email ?? undefined);

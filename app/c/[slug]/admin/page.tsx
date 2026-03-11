@@ -210,6 +210,7 @@ export default function ContestAdminPage() {
     maxTeams: contest.maxTeams,
     maxApprovedTeams: contest.maxApprovedTeams,
     maxTeamMembers: contest.maxTeamMembers,
+    registrationDeadline: contest.registrationDeadline ? contest.registrationDeadline.slice(0, 16) : "",
   });
   const [scoringCriteriaForm, setScoringCriteriaForm] = useState<ScoringCriterion[]>(
     contest.scoringCriteria || []
@@ -633,6 +634,7 @@ export default function ContestAdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...settingsForm,
+          registrationDeadline: settingsForm.registrationDeadline || null,
           scoringCriteria: scoringCriteriaForm,
           phaseConfig: phaseConfigForm,
           prizes: prizesForm,
@@ -1334,6 +1336,16 @@ export default function ContestAdminPage() {
                         <SelectItem value="archived">Archived</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    <Label className="text-gray-200">Registration Deadline</Label>
+                    <Input
+                      type="datetime-local"
+                      value={settingsForm.registrationDeadline}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, registrationDeadline: e.target.value })}
+                      className="bg-white/5 border-white/10 text-white [color-scheme:dark]"
+                    />
+                    <p className="text-gray-500 text-xs mt-1">Leave empty for no deadline</p>
                   </div>
                 </div>
               </GlassCard>

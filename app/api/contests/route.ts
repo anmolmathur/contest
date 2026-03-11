@@ -29,6 +29,7 @@ export async function GET() {
         bannerImageUrl: true,
         startDate: true,
         endDate: true,
+        registrationDeadline: true,
         createdAt: true,
       },
       orderBy: (contests, { desc }) => [desc(contests.createdAt)],
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest) {
       maxTeamMembers: body.maxTeamMembers || DEFAULT_MAX_TEAM_MEMBERS,
       startDate: body.startDate ? new Date(body.startDate) : null,
       endDate: body.endDate ? new Date(body.endDate) : null,
+      registrationDeadline: body.registrationDeadline ? new Date(body.registrationDeadline) : null,
     }).returning();
 
     return NextResponse.json(newContest, { status: 201 });

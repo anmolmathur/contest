@@ -50,6 +50,7 @@ export default async function ContestLayout({
     maxTeamMembers: contest.maxTeamMembers,
     startDate: contest.startDate?.toISOString() ?? null,
     endDate: contest.endDate?.toISOString() ?? null,
+    registrationDeadline: contest.registrationDeadline?.toISOString() ?? null,
     tracks: contest.tracks.map((t) => ({
       id: t.id,
       name: t.name,

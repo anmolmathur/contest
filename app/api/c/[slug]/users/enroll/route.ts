@@ -31,6 +31,14 @@ export async function POST(
       );
     }
 
+    // Check registration deadline
+    if (contest.registrationDeadline && new Date() > new Date(contest.registrationDeadline)) {
+      return NextResponse.json(
+        { error: "Registration deadline has passed" },
+        { status: 403 }
+      );
+    }
+
     // Check if user is already enrolled
     const existing = await db.query.contestUsers.findFirst({
       where: and(

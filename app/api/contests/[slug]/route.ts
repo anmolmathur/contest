@@ -69,12 +69,12 @@ export async function PUT(
       "rulesContent", "eligibilityRules", "teamStructureRules", "deliverableRules",
       "scoringCriteria", "phaseConfig", "prizes", "roleConfig",
       "maxTeams", "maxApprovedTeams", "maxTeamMembers",
-      "startDate", "endDate",
+      "startDate", "endDate", "registrationDeadline",
     ];
 
     for (const field of allowedFields) {
       if (body[field] !== undefined) {
-        if (field === "startDate" || field === "endDate") {
+        if (field === "startDate" || field === "endDate" || field === "registrationDeadline") {
           updateData[field] = body[field] ? new Date(body[field]) : null;
         } else {
           updateData[field] = body[field];
