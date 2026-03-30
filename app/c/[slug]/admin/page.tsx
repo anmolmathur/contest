@@ -58,6 +58,7 @@ import {
   Layers,
   CheckCircle,
   XCircle,
+  X,
 } from "lucide-react";
 import CertificateTab from "@/components/certificates/CertificateTab";
 import type { ScoringCriterion, PhaseConfig, Prize, RoleConfig } from "@/lib/contest-context";
@@ -689,6 +690,44 @@ export default function ContestAdminPage() {
   const updatePhaseConfig = (index: number, field: string, value: any) => {
     const updated = [...phaseConfigForm];
     (updated[index] as any)[field] = value;
+    setPhaseConfigForm(updated);
+  };
+
+  // Phase detail (activity) helpers
+  const addPhaseDetail = (phaseIndex: number) => {
+    const updated = [...phaseConfigForm];
+    updated[phaseIndex] = { ...updated[phaseIndex], details: [...(updated[phaseIndex].details || []), ""] };
+    setPhaseConfigForm(updated);
+  };
+  const updatePhaseDetail = (phaseIndex: number, detailIndex: number, value: string) => {
+    const updated = [...phaseConfigForm];
+    const details = [...(updated[phaseIndex].details || [])];
+    details[detailIndex] = value;
+    updated[phaseIndex] = { ...updated[phaseIndex], details };
+    setPhaseConfigForm(updated);
+  };
+  const removePhaseDetail = (phaseIndex: number, detailIndex: number) => {
+    const updated = [...phaseConfigForm];
+    updated[phaseIndex] = { ...updated[phaseIndex], details: (updated[phaseIndex].details || []).filter((_, i) => i !== detailIndex) };
+    setPhaseConfigForm(updated);
+  };
+
+  // Phase deliverable helpers
+  const addPhaseDeliverable = (phaseIndex: number) => {
+    const updated = [...phaseConfigForm];
+    updated[phaseIndex] = { ...updated[phaseIndex], deliverables: [...(updated[phaseIndex].deliverables || []), ""] };
+    setPhaseConfigForm(updated);
+  };
+  const updatePhaseDeliverable = (phaseIndex: number, delIndex: number, value: string) => {
+    const updated = [...phaseConfigForm];
+    const deliverables = [...(updated[phaseIndex].deliverables || [])];
+    deliverables[delIndex] = value;
+    updated[phaseIndex] = { ...updated[phaseIndex], deliverables };
+    setPhaseConfigForm(updated);
+  };
+  const removePhaseDeliverable = (phaseIndex: number, delIndex: number) => {
+    const updated = [...phaseConfigForm];
+    updated[phaseIndex] = { ...updated[phaseIndex], deliverables: (updated[phaseIndex].deliverables || []).filter((_, i) => i !== delIndex) };
     setPhaseConfigForm(updated);
   };
 
@@ -1487,6 +1526,50 @@ export default function ContestAdminPage() {
                           <Label className="text-gray-300 text-xs">Description</Label>
                           <Input value={phase.description} onChange={(e) => updatePhaseConfig(index, "description", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" />
                         </div>
+                      </div>
+
+                      {/* Activities Editor */}
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-gray-300 text-xs">Activities</Label>
+                          <Button variant="ghost" size="sm" onClick={() => addPhaseDetail(index)} className="text-electric-blue hover:bg-white/10 h-7 px-2 text-xs">
+                            <Plus size={12} className="mr-1" /> Add Activity
+                          </Button>
+                        </div>
+                        {phase.details && phase.details.length > 0 && (
+                          <div className="space-y-2">
+                            {phase.details.map((detail, di) => (
+                              <div key={di} className="flex items-center gap-2">
+                                <Input value={detail} onChange={(e) => updatePhaseDetail(index, di, e.target.value)} placeholder="Activity description..." className="bg-white/5 border-white/10 text-white text-sm flex-1" />
+                                <Button variant="ghost" size="sm" onClick={() => removePhaseDetail(index, di)} className="text-red-400 hover:bg-red-500/10 h-8 w-8 p-0 flex-shrink-0">
+                                  <X size={14} />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Deliverables Editor */}
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-gray-300 text-xs">Deliverables</Label>
+                          <Button variant="ghost" size="sm" onClick={() => addPhaseDeliverable(index)} className="text-hot-pink hover:bg-white/10 h-7 px-2 text-xs">
+                            <Plus size={12} className="mr-1" /> Add Deliverable
+                          </Button>
+                        </div>
+                        {phase.deliverables && phase.deliverables.length > 0 && (
+                          <div className="space-y-2">
+                            {phase.deliverables.map((del, di) => (
+                              <div key={di} className="flex items-center gap-2">
+                                <Input value={del} onChange={(e) => updatePhaseDeliverable(index, di, e.target.value)} placeholder="Deliverable description..." className="bg-white/5 border-white/10 text-white text-sm flex-1" />
+                                <Button variant="ghost" size="sm" onClick={() => removePhaseDeliverable(index, di)} className="text-red-400 hover:bg-red-500/10 h-8 w-8 p-0 flex-shrink-0">
+                                  <X size={14} />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
