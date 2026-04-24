@@ -15,9 +15,10 @@ import {
 import { BarChart3, List, Crown } from "lucide-react";
 
 interface PhaseScores {
-  phase2: number;
-  phase3: number;
-  phase4: number;
+  phase2?: number;
+  phase3?: number;
+  phase4?: number;
+  [key: string]: number | undefined;
 }
 
 interface TeamMember {
@@ -163,35 +164,34 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
                     </div>
                   </TableCell>
                   <TableCell className="text-gray-400">{entry.track}</TableCell>
-                  {viewMode === "breakdown" && entry.phaseScores && (
+                  {viewMode === "breakdown" && (
                     <>
                       <TableCell className="text-center">
                         <span className="text-neon-purple font-semibold">
-                          {entry.phaseScores.phase2.toFixed(1)}
+                          {typeof entry.phaseScores?.phase2 === "number"
+                            ? entry.phaseScores.phase2.toFixed(1)
+                            : "-"}
                         </span>
                       </TableCell>
                       <TableCell className="text-center">
                         <span className="text-electric-blue font-semibold">
-                          {entry.phaseScores.phase3.toFixed(1)}
+                          {typeof entry.phaseScores?.phase3 === "number"
+                            ? entry.phaseScores.phase3.toFixed(1)
+                            : "-"}
                         </span>
                       </TableCell>
                       <TableCell className="text-center">
                         <span className="text-hot-pink font-semibold">
-                          {entry.phaseScores.phase4.toFixed(1)}
+                          {typeof entry.phaseScores?.phase4 === "number"
+                            ? entry.phaseScores.phase4.toFixed(1)
+                            : "-"}
                         </span>
                       </TableCell>
                     </>
                   )}
-                  {viewMode === "breakdown" && !entry.phaseScores && (
-                    <>
-                      <TableCell className="text-center text-gray-500">-</TableCell>
-                      <TableCell className="text-center text-gray-500">-</TableCell>
-                      <TableCell className="text-center text-gray-500">-</TableCell>
-                    </>
-                  )}
                   <TableCell className="text-right">
                     <span className="text-2xl font-bold bg-gradient-to-r from-neon-purple to-electric-blue bg-clip-text text-transparent">
-                      {entry.totalScore.toFixed(2)}
+                      {(entry.totalScore ?? 0).toFixed(2)}
                     </span>
                   </TableCell>
                 </motion.tr>
