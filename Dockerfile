@@ -1,5 +1,6 @@
 # Multi-stage Dockerfile for Next.js 16 Application
-FROM node:20-alpine AS base
+#FROM node:20-alpine AS base
+FROM 163742846785.dkr.ecr.ap-south-1.amazonaws.com/node-20-alpine@sha256:1565ec2a76d08d442a300c142d9e513e51a76acbfca3c67ca385ab76bc9b9a1f AS base
 
 # Install dependencies only when needed
 FROM base AS deps
