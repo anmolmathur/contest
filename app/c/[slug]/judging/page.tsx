@@ -30,6 +30,7 @@ import {
   Crown,
   Loader2,
   ShieldAlert,
+  FileDown,
 } from "lucide-react";
 import type { ScoringCriterion, PhaseConfig } from "@/lib/contest-context";
 
@@ -410,6 +411,16 @@ export default function ContestJudgingPage() {
                   Contest Home
                 </Button>
               </Link>
+              {/* Download pre-filled offline XLSX (one sheet per scorable phase). */}
+              <Button
+                onClick={() => { window.location.href = `/api/c/${slug}/judging-sheet`; }}
+                variant="outline"
+                className="border-emerald-500/30 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20"
+                title="Download offline judging sheet (XLSX) with editable score columns"
+              >
+                <FileDown className="mr-2" size={18} />
+                Offline Sheet
+              </Button>
               <Link href={`/c/${slug}/admin`}>
                 <Button className="bg-gradient-to-r from-electric-blue to-hot-pink">
                   <Settings className="mr-2" size={18} />

@@ -31,6 +31,10 @@ export async function GET() {
         endDate: true,
         registrationDeadline: true,
         createdAt: true,
+        // Surfaced so the platform admin UI can show / edit them
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        isDefault: true,
       },
       orderBy: (contests, { desc }) => [desc(contests.createdAt)],
     });

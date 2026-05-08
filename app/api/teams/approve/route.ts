@@ -1,24 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams } from "@/lib/db/schema";
 import { eq, count, and } from "drizzle-orm";
-import { JUDGE_EMAILS, MAX_APPROVED_TEAMS } from "@/lib/constants";
+import { requireLegacyJudge, errorResponse, LegacyAuthError } from "@/lib/legacy-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Verify user is a judge
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
-      return NextResponse.json(
-        { error: "Only judges can approve teams" },
-        { status: 403 }
-      );
-    }
+    const az = await requireLegacyJudge();
+    if (!az.isMutable) throw new LegacyAuthError(409, "Contest is completed or archived; approvals are frozen");
 
     const body = await req.json();
     const { teamId, approved } = body;
@@ -30,51 +19,48 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // If approving a team, check if the limit has been reached
+    // Tenant isolation: the team must belong to the default contest
+    const team = await db.query.teams.findFirst({ where: eq(teams.id, teamId) });
+    if (!team) {
+      return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    }
+    if (team.contestId !== az.defaultContestId) {
+      return NextResponse.json({ error: "Team is not in your contest" }, { status: 403 });
+    }
+
+    // Resolve max-approved-teams from the contest config (not a hardcoded constant).
+    const { getContestById } = await import("@/lib/contest-auth");
+    const contest = await getContestById(az.defaultContestId);
+    const maxApproved = contest?.maxApprovedTeams ?? 10;
+
     if (approved) {
       const [approvedCountResult] = await db
         .select({ count: count() })
         .from(teams)
-        .where(eq(teams.approved, true));
+        .where(and(eq(teams.approved, true), eq(teams.contestId, az.defaultContestId)));
 
-      if (approvedCountResult.count >= MAX_APPROVED_TEAMS) {
+      if (approvedCountResult.count >= maxApproved) {
         return NextResponse.json(
-          { error: `Maximum approved team limit (${MAX_APPROVED_TEAMS}) reached` },
+          { error: `Maximum approved team limit (${maxApproved}) reached` },
           { status: 400 }
         );
       }
     }
 
-    // Update team approval status
     const [updatedTeam] = await db
       .update(teams)
-      .set({ 
-        approved,
-        updatedAt: new Date()
-      })
+      .set({ approved, updatedAt: new Date() })
       .where(eq(teams.id, teamId))
       .returning();
 
-    if (!updatedTeam) {
-      return NextResponse.json(
-        { error: "Team not found" },
-        { status: 404 }
-      );
-    }
-
     return NextResponse.json(
-      { 
-        message: `Team ${approved ? "approved" : "unapproved"} successfully`, 
-        team: updatedTeam 
+      {
+        message: `Team ${approved ? "approved" : "unapproved"} successfully`,
+        team: updatedTeam,
       },
       { status: 200 }
     );
-  } catch (error: any) {
-    console.error("Team approval error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return errorResponse(error);
   }
 }
-

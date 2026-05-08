@@ -39,7 +39,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import { Users, Plus, Send, CheckCircle, Award, Trophy, LogOut, User, Edit, Trash2, UserMinus, Crown } from "lucide-react";
-import { MAX_TEAMS, MAX_TEAM_MEMBERS, JUDGE_EMAILS } from "@/lib/constants";
+import { MAX_TEAMS, MAX_TEAM_MEMBERS } from "@/lib/constants";
 import Leaderboard from "@/components/Leaderboard";
 
 const tracks = [
@@ -577,7 +577,7 @@ export default function DashboardPage() {
               Participant Dashboard
             </h1>
             <div className="flex items-center gap-4">
-              {JUDGE_EMAILS.includes(session?.user?.email || "") && (
+              {(session?.user?.legacyRole === "judge" || session?.user?.legacyRole === "admin") && (
                 <Button
                   onClick={() => router.push("/judging")}
                   className="bg-gradient-to-r from-hot-pink to-neon-purple"

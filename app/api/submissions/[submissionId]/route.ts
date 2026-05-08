@@ -1,90 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { submissions, users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { JUDGE_EMAILS } from "@/lib/constants";
+import { submissions, contestUsers } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { requireLegacyRead, requireLegacyJudge, errorResponse, LegacyAuthError } from "@/lib/legacy-auth";
 
-// GET - Fetch submission details
+/**
+ * Ensure a submission actually belongs to the default contest and return its team info.
+ * Throws LegacyAuthError on mismatch.
+ */
+async function loadSubmissionOrThrow(submissionId: string, defaultContestId: string) {
+  const submission = await db.query.submissions.findFirst({
+    where: eq(submissions.id, submissionId),
+    with: { team: true, scores: { with: { judge: true } } },
+  });
+  if (!submission) throw new LegacyAuthError(404, "Submission not found");
+  if (submission.team?.contestId !== defaultContestId) {
+    throw new LegacyAuthError(403, "Submission is not in your contest");
+  }
+  return submission;
+}
+
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ submissionId: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const az = await requireLegacyRead();
     const { submissionId } = await params;
+    const submission = await loadSubmissionOrThrow(submissionId, az.defaultContestId);
 
-    const submission = await db.query.submissions.findFirst({
-      where: eq(submissions.id, submissionId),
-      with: {
-        team: true,
-        scores: {
-          with: {
-            judge: true,
-          },
-        },
-      },
+    // Determine team-membership via contest_users (not the deprecated users.teamId column)
+    const cu = await db.query.contestUsers.findFirst({
+      where: and(
+        eq(contestUsers.contestId, az.defaultContestId),
+        eq(contestUsers.userId, az.userId),
+      ),
     });
+    const isTeamMember = !!cu && cu.teamId === submission.teamId;
 
-    if (!submission) {
-      return NextResponse.json(
-        { error: "Submission not found" },
-        { status: 404 }
-      );
-    }
-
-    // Check if user is authorized (team member or judge)
-    const isTeamMember = session.user.teamId === submission.teamId;
-    const isJudge = JUDGE_EMAILS.includes(session.user.email || "");
-
-    if (!isTeamMember && !isJudge) {
+    if (!isTeamMember && !az.isJudge && !az.isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     return NextResponse.json({ submission }, { status: 200 });
   } catch (error) {
-    console.error("Get submission error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
 
-// PUT - Update submission (team members only)
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ submissionId: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const az = await requireLegacyRead();
+    if (!az.isMutable) throw new LegacyAuthError(409, "Contest is completed or archived; submissions are locked");
 
     const { submissionId } = await params;
+    const submission = await loadSubmissionOrThrow(submissionId, az.defaultContestId);
 
-    // Get the submission
-    const submission = await db.query.submissions.findFirst({
-      where: eq(submissions.id, submissionId),
+    const cu = await db.query.contestUsers.findFirst({
+      where: and(
+        eq(contestUsers.contestId, az.defaultContestId),
+        eq(contestUsers.userId, az.userId),
+      ),
     });
+    const isTeamMember = !!cu && cu.teamId === submission.teamId;
 
-    if (!submission) {
-      return NextResponse.json(
-        { error: "Submission not found" },
-        { status: 404 }
-      );
-    }
-
-    // Check if user is a team member or a judge (admin)
-    const isTeamMember = session.user.teamId === submission.teamId;
-    const isJudge = JUDGE_EMAILS.includes(session.user.email || "");
-
-    if (!isTeamMember && !isJudge) {
+    if (!isTeamMember && !az.isJudge) {
       return NextResponse.json(
         { error: "Only team members or admins can edit submissions" },
         { status: 403 }
@@ -101,7 +84,6 @@ export async function PUT(
       aiScreenshots,
     } = body;
 
-    // Validate required fields
     if (
       !githubUrl ||
       !demoUrl ||
@@ -117,7 +99,6 @@ export async function PUT(
       );
     }
 
-    // Update submission
     const [updatedSubmission] = await db
       .update(submissions)
       .set({
@@ -137,48 +118,21 @@ export async function PUT(
       { status: 200 }
     );
   } catch (error) {
-    console.error("Update submission error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
 
-// DELETE - Delete submission (admin/judges only)
 export async function DELETE(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ submissionId: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Only judges/admins can delete submissions
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
-      return NextResponse.json(
-        { error: "Only admins can delete submissions" },
-        { status: 403 }
-      );
-    }
+    const az = await requireLegacyJudge();
+    if (!az.isMutable) throw new LegacyAuthError(409, "Contest is completed or archived");
 
     const { submissionId } = await params;
+    await loadSubmissionOrThrow(submissionId, az.defaultContestId);
 
-    // Check if submission exists
-    const submission = await db.query.submissions.findFirst({
-      where: eq(submissions.id, submissionId),
-    });
-
-    if (!submission) {
-      return NextResponse.json(
-        { error: "Submission not found" },
-        { status: 404 }
-      );
-    }
-
-    // Delete the submission (cascade will delete related scores)
     await db.delete(submissions).where(eq(submissions.id, submissionId));
 
     return NextResponse.json(
@@ -186,11 +140,6 @@ export async function DELETE(
       { status: 200 }
     );
   } catch (error) {
-    console.error("Delete submission error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
-

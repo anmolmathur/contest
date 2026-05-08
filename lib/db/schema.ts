@@ -28,6 +28,13 @@ export const contestStatusEnum = pgEnum("contest_status", [
   "archived",
 ]);
 
+// Visibility controls whether archived/completed contests are publicly browseable
+export const contestVisibilityEnum = pgEnum("contest_visibility", [
+  "public",     // listed on platform home, results visible
+  "unlisted",   // results visible by direct link only
+  "private",    // only contest members can view
+]);
+
 // Contests Table
 export const contests = pgTable("contests", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -35,13 +42,34 @@ export const contests = pgTable("contests", {
   slug: varchar("slug", { length: 255 }).notNull().unique(),
   description: text("description"),
   status: contestStatusEnum("status").default("draft").notNull(),
+  visibility: contestVisibilityEnum("visibility").default("public").notNull(),
+  // When true, legacy non-scoped routes (/api/teams/all, /dashboard, /admin, /judging)
+  // resolve to this contest. Exactly one contest should be marked isDefault for the
+  // pre-multi-tenant UI to continue working.
+  isDefault: boolean("is_default").default(false).notNull(),
   createdBy: uuid("created_by").notNull(),
+
+  // Custom domain (Milestone 2)
+  customDomain: varchar("custom_domain", { length: 255 }).unique(),
+  customDomainVerifiedAt: timestamp("custom_domain_verified_at", { mode: "date" }),
+  supportEmail: varchar("support_email", { length: 255 }),
 
   // Landing Page Content
   heroTitle: text("hero_title"),
   heroSubtitle: text("hero_subtitle"),
   heroCtaText: varchar("hero_cta_text", { length: 255 }),
   bannerImageUrl: varchar("banner_image_url", { length: 500 }),
+
+  // Whitelabel branding (Milestone 2)
+  // { primaryColor, secondaryColor, accentColor, faviconUrl, ogImageUrl, metaTitle, metaDescription, footerHtml }
+  brandingConfig: jsonb("branding_config"),
+
+  // Feature flags per contest
+  // { teamPitches: bool, aiAssistant: bool, publicLeaderboard: bool, notifications: bool, mediaUploads: bool }
+  featureFlags: jsonb("feature_flags"),
+
+  // FAQ entries: Array of {question, answer}
+  faqConfig: jsonb("faq_config"),
 
   // Rules Page Content (markdown)
   rulesContent: text("rules_content"),
@@ -86,7 +114,7 @@ export const contestUsers = pgTable("contest_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  role: varchar("role", { length: 50 }).notNull(), // 'admin', 'judge', 'participant'
+  role: varchar("role", { length: 50 }).notNull(), // 'admin' | 'judge' | 'participant' | 'mentor'
   participantRole: varchar("participant_role", { length: 100 }), // e.g. 'Developer', 'Team Lead'
   teamId: uuid("team_id"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
@@ -106,6 +134,9 @@ export const users = pgTable("users", {
   department: varchar("department", { length: 255 }),
   teamId: uuid("team_id"), // kept for backward compat
   globalRole: varchar("global_role", { length: 50 }).default("user").notNull(), // 'platform_admin' or 'user'
+  // Notification preferences per channel per event type
+  // { email: { teamInvite: bool, phaseStarted: bool, ... }, inApp: { ... } }
+  notificationPrefs: jsonb("notification_prefs"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 });
@@ -185,6 +216,83 @@ export const certificateTemplates = pgTable("certificate_templates", {
 
   createdBy: uuid("created_by").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+});
+
+// ================================================================
+// Milestone 3/4 tables
+// ================================================================
+
+// Per-contest announcements (renderable markdown, pinned support)
+export const announcements = pgTable("announcements", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  pinned: boolean("pinned").default(false).notNull(),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  publishedAt: timestamp("published_at", { mode: "date" }).defaultNow(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+});
+
+// In-app notifications (fed by the dispatch layer; email sent out-of-band)
+export const notifications = pgTable("notifications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contestId: uuid("contest_id").references(() => contests.id, { onDelete: "cascade" }),
+  type: varchar("type", { length: 64 }).notNull(), // 'team_invite', 'phase_started', etc.
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body"),
+  actionUrl: varchar("action_url", { length: 500 }),
+  readAt: timestamp("read_at", { mode: "date" }),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+});
+
+// Uploaded media (pitch videos, images, logos, banners). Stored in S3 (or mock local disk in dev).
+export const mediaAssets = pgTable("media_assets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerUserId: uuid("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contestId: uuid("contest_id").references(() => contests.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id").references(() => teams.id, { onDelete: "set null" }),
+  kind: varchar("kind", { length: 64 }).notNull(), // 'pitch_video' | 'pitch_image' | 'banner' | 'certificate_logo' | 'submission_screenshot'
+  bucket: varchar("bucket", { length: 255 }),
+  objectKey: varchar("object_key", { length: 500 }),
+  url: varchar("url", { length: 1000 }).notNull(),
+  mimeType: varchar("mime_type", { length: 128 }),
+  sizeBytes: integer("size_bytes"),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+});
+
+// Team pitches — participants advertise themselves to team leaders
+export const teamPitches = pgTable("team_pitches", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  bioMarkdown: text("bio_markdown"),
+  skills: jsonb("skills"), // string[]
+  heroMediaUrl: varchar("hero_media_url", { length: 1000 }),
+  videoUrl: varchar("video_url", { length: 1000 }),
+  imageUrls: jsonb("image_urls"), // string[]
+  lookingForRoles: jsonb("looking_for_roles"), // string[]
+  visible: boolean("visible").default(true).notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+}, (table) => ({
+  uniqueContestUser: unique().on(table.contestId, table.userId),
+}));
+
+// Team invites / join requests between participants and team leaders
+export const teamInvitations = pgTable("team_invitations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  inviterUserId: uuid("inviter_user_id").notNull().references(() => users.id),
+  inviteeUserId: uuid("invitee_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  direction: varchar("direction", { length: 16 }).notNull(), // 'invite' (leader→user) | 'request' (user→team)
+  status: varchar("status", { length: 16 }).default("pending").notNull(), // 'pending' | 'accepted' | 'declined' | 'cancelled'
+  message: text("message"),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 });
 
@@ -320,5 +428,68 @@ export const certificateTemplatesRelations = relations(certificateTemplates, ({ 
   contest: one(contests, {
     fields: [certificateTemplates.contestId],
     references: [contests.id],
+  }),
+}));
+
+export const announcementsRelations = relations(announcements, ({ one }) => ({
+  contest: one(contests, {
+    fields: [announcements.contestId],
+    references: [contests.id],
+  }),
+  author: one(users, {
+    fields: [announcements.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
+  contest: one(contests, {
+    fields: [notifications.contestId],
+    references: [contests.id],
+  }),
+}));
+
+export const mediaAssetsRelations = relations(mediaAssets, ({ one }) => ({
+  owner: one(users, {
+    fields: [mediaAssets.ownerUserId],
+    references: [users.id],
+  }),
+  contest: one(contests, {
+    fields: [mediaAssets.contestId],
+    references: [contests.id],
+  }),
+  team: one(teams, {
+    fields: [mediaAssets.teamId],
+    references: [teams.id],
+  }),
+}));
+
+export const teamPitchesRelations = relations(teamPitches, ({ one }) => ({
+  contest: one(contests, {
+    fields: [teamPitches.contestId],
+    references: [contests.id],
+  }),
+  user: one(users, {
+    fields: [teamPitches.userId],
+    references: [users.id],
+  }),
+}));
+
+export const teamInvitationsRelations = relations(teamInvitations, ({ one }) => ({
+  team: one(teams, {
+    fields: [teamInvitations.teamId],
+    references: [teams.id],
+  }),
+  inviter: one(users, {
+    fields: [teamInvitations.inviterUserId],
+    references: [users.id],
+  }),
+  invitee: one(users, {
+    fields: [teamInvitations.inviteeUserId],
+    references: [users.id],
   }),
 }));

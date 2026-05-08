@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
-import { users, teams } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { isPlatformAdmin } from "@/lib/contest-auth";
 
 export async function GET() {
@@ -12,12 +9,9 @@ export async function GET() {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    // Verify user is a platform admin or legacy judge
-    const isAdmin = await isPlatformAdmin(session.user.id);
-    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
+    if (!(await isPlatformAdmin(session.user.id))) {
       return NextResponse.json(
-        { error: "Only admins can access this" },
+        { error: "Only platform admins can list all users" },
         { status: 403 }
       );
     }

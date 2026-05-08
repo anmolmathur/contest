@@ -14,8 +14,11 @@ RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retries 5 && \
     npm config set fetch-timeout 300000
 
-# Install dependencies with retry logic
-RUN npm ci || npm ci || npm ci
+# Install dependencies with retry logic.
+# `--legacy-peer-deps` is needed because next-auth@5 beta declares a peer
+# on nodemailer@7 which npm's strict resolver doesn't like when we also
+# add it as a direct dependency for the notifications engine.
+RUN npm ci --legacy-peer-deps || npm ci --legacy-peer-deps || npm ci --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder

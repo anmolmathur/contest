@@ -1,0 +1,4 @@
+# Drop infra-provided prod dumps here. Files may contain PII — never commit.
+*
+!.gitignore
+!README.md

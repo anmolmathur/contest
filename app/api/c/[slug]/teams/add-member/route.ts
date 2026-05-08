@@ -61,6 +61,16 @@ export async function POST(
       );
     }
 
+    // Block adding a mentor via this endpoint — mentors go through
+    // /api/c/[slug]/teams/[id]/mentor so they're kept distinct from
+    // participants throughout the team lifecycle.
+    if (targetContestUser.role === "mentor") {
+      return NextResponse.json(
+        { error: "Use the mentor endpoint to attach a mentor to a team" },
+        { status: 400 }
+      );
+    }
+
     // Check if user already has a team in this contest
     if (targetContestUser.teamId) {
       return NextResponse.json(
@@ -69,24 +79,22 @@ export async function POST(
       );
     }
 
-    // Get current team members (via contest_users)
+    // Get current team members (via contest_users). Mentors are EXCLUDED
+    // from the roster for team-size accounting because they don't count
+    // against maxTeamMembers.
     const teamMembers = await db.query.contestUsers.findMany({
       where: and(
         eq(contestUsers.teamId, teamId),
         eq(contestUsers.contestId, contest.id),
       ),
       with: {
-        user: {
-          columns: {
-            id: true,
-            role: true,
-          },
-        },
+        user: { columns: { id: true, role: true } },
       },
     });
+    const participantMembers = teamMembers.filter((m) => m.role !== "mentor");
 
     // Check team size limit from contest config
-    if (teamMembers.length >= contest.maxTeamMembers) {
+    if (participantMembers.length >= contest.maxTeamMembers) {
       return NextResponse.json(
         { error: `Team is full (maximum ${contest.maxTeamMembers} members)` },
         { status: 400 }
@@ -97,7 +105,8 @@ export async function POST(
     const roleConfig = contest.roleConfig as Array<{ role: string; maxPerTeam: number }> | null;
     if (roleConfig && targetContestUser.participantRole) {
       const roleCounts: Record<string, number> = {};
-      for (const member of teamMembers) {
+      // Only count participants; mentors are exempt from per-role caps.
+      for (const member of participantMembers) {
         const cu = await getContestUser(member.userId, contest.id);
         if (cu?.participantRole) {
           roleCounts[cu.participantRole] = (roleCounts[cu.participantRole] || 0) + 1;

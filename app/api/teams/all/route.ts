@@ -1,33 +1,19 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
+import { teams } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { requireLegacyJudge, errorResponse } from "@/lib/legacy-auth";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const az = await requireLegacyJudge();
 
-    // Verify user is a judge
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
-      return NextResponse.json(
-        { error: "Only judges can access this" },
-        { status: 403 }
-      );
-    }
-
-    // Get all teams with their members and submissions
+    // Contest-scoped: only teams in the default contest
     const teamsWithData = await db.query.teams.findMany({
+      where: eq(teams.contestId, az.defaultContestId),
       with: {
         members: {
-          columns: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-          },
+          columns: { id: true, name: true, email: true, role: true },
         },
         submissions: true,
       },
@@ -35,11 +21,6 @@ export async function GET() {
 
     return NextResponse.json({ teams: teamsWithData }, { status: 200 });
   } catch (error) {
-    console.error("Get all teams error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
-

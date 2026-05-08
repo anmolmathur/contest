@@ -1,0 +1,3 @@
+# Dump files land here. They may contain PII. Never commit them.
+*
+!.gitignore

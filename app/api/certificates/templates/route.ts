@@ -3,19 +3,18 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { certificateTemplates, users } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { JUDGE_EMAILS } from "@/lib/constants";
+import { legacyAuthz } from "@/lib/legacy-auth";
 
 // GET all templates
 export async function GET() {
   try {
     const session = await auth();
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    // Only judges can access this endpoint
-    if (!JUDGE_EMAILS.includes(session.user.email)) {
+    const az = await legacyAuthz();
+    if (!az.isJudge) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -46,12 +45,11 @@ export async function POST(request: Request) {
   try {
     const session = await auth();
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    // Only judges can create templates
-    if (!JUDGE_EMAILS.includes(session.user.email)) {
+    const az = await legacyAuthz();
+    if (!az.isJudge) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -80,7 +78,7 @@ export async function POST(request: Request) {
 
     // Get current user's ID
     const currentUser = await db.query.users.findFirst({
-      where: eq(users.email, session.user.email),
+      where: eq(users.id, session.user.id),
     });
 
     if (!currentUser) {

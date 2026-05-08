@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { submissions, users } from "@/lib/db/schema";
+import { submissions, contestUsers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { legacyAuthz, errorResponse, LegacyAuthError } from "@/lib/legacy-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const az = await legacyAuthz();
+    if (!az.canRead) throw new LegacyAuthError(403, "Join the contest first");
+    if (!az.isMutable) throw new LegacyAuthError(409, "Contest is frozen; submissions are closed");
 
     const body = await req.json();
     const {
@@ -22,7 +21,6 @@ export async function POST(req: NextRequest) {
       aiScreenshots,
     } = body;
 
-    // Validate required fields
     if (
       !phase ||
       !githubUrl ||
@@ -39,36 +37,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate phase
     if (![2, 3, 4].includes(phase)) {
-      return NextResponse.json(
-        { error: "Phase must be 2, 3, or 4" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Phase must be 2, 3, or 4" }, { status: 400 });
     }
 
-    // Check if user has a team
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, session.user.id),
+    // Look up the caller's contest_users row to find their team
+    const cu = await db.query.contestUsers.findFirst({
+      where: and(
+        eq(contestUsers.contestId, az.defaultContestId),
+        eq(contestUsers.userId, az.userId),
+      ),
     });
 
-    if (!user?.teamId) {
+    if (!cu?.teamId) {
       return NextResponse.json(
         { error: "You must be in a team to submit" },
         { status: 400 }
       );
     }
 
-    // Check if a submission already exists for this team and phase
     const existingSubmission = await db.query.submissions.findFirst({
       where: and(
-        eq(submissions.teamId, user.teamId),
+        eq(submissions.teamId, cu.teamId),
         eq(submissions.phase, phase)
       ),
     });
 
     if (existingSubmission) {
-      // Update existing submission
       const [updatedSubmission] = await db
         .update(submissions)
         .set({
@@ -84,20 +79,19 @@ export async function POST(req: NextRequest) {
         .returning();
 
       return NextResponse.json(
-        { 
-          message: "Submission updated successfully", 
+        {
+          message: "Submission updated successfully",
           submission: updatedSubmission,
-          updated: true 
+          updated: true,
         },
         { status: 200 }
       );
     }
 
-    // Create new submission
     const [newSubmission] = await db
       .insert(submissions)
       .values({
-        teamId: user.teamId,
+        teamId: cu.teamId,
         phase,
         githubUrl,
         demoUrl,
@@ -113,10 +107,6 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("Submission creation error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }

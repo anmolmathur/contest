@@ -3,19 +3,19 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { certificateTemplates, users, teams } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { JUDGE_EMAILS, PRIZES } from "@/lib/constants";
+import { PRIZES } from "@/lib/constants";
 import ReactPDF from "@react-pdf/renderer";
 import { CertificateDocument } from "@/components/certificates/CertificatePDF";
+import { legacyAuthz } from "@/lib/legacy-auth";
 
 export async function POST(request: Request) {
   try {
     const session = await auth();
-
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    if (!JUDGE_EMAILS.includes(session.user.email)) {
+    const az = await legacyAuthz();
+    if (!az.isJudge) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -38,13 +38,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
     }
 
-    // Get team details
+    // Get team details (and verify it belongs to the caller's contest)
     const team = await db.query.teams.findFirst({
       where: eq(teams.id, teamId),
     });
 
     if (!team) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    }
+    if (team.contestId !== az.defaultContestId) {
+      return NextResponse.json({ error: "Team is not in your contest" }, { status: 403 });
     }
 
     // Get template (use specified or default or fallback)

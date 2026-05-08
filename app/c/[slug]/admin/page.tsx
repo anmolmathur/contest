@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { TeamMentorPanel } from "@/components/TeamMentorPanel";
 import GlowButton from "@/components/GlowButton";
 import GlassCard from "@/components/GlassCard";
 import BackgroundPattern from "@/components/BackgroundPattern";
@@ -1854,13 +1855,13 @@ export default function ContestAdminPage() {
 
       {/* View Team Dialog */}
       <Dialog open={viewTeamOpen} onOpenChange={setViewTeamOpen}>
-        <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-2xl">
+        <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-white">Team Details</DialogTitle>
           </DialogHeader>
           {viewingTeam && (
-            <div className="mt-4">
-              <div className="mb-6">
+            <div className="mt-4 space-y-5">
+              <div>
                 <h4 className="text-xl font-bold text-white mb-2">{viewingTeam.name}</h4>
                 <p className="text-gray-400">Track: {viewingTeam.trackName || viewingTeam.track || "-"}</p>
                 <span className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-semibold ${
@@ -1869,25 +1870,31 @@ export default function ContestAdminPage() {
                   {viewingTeam.approved ? "Approved" : "Pending"}
                 </span>
               </div>
-              <h5 className="text-lg font-semibold text-white mb-3">Members ({viewingTeam.members?.length || 0})</h5>
-              <div className="space-y-2">
-                {viewingTeam.members?.map((member: any) => (
-                  <div key={member.id} className={`bg-white/5 border rounded-lg p-3 ${
-                    member.id === viewingTeam.leaderId ? "border-amber-500/30 bg-amber-500/5" : "border-white/10"
-                  }`}>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-white font-semibold">{member.name || "Unnamed"}</p>
-                      {member.id === viewingTeam.leaderId && (
-                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold">
-                          <Crown size={10} />
-                          Leader
-                        </span>
-                      )}
+              <div>
+                <h5 className="text-lg font-semibold text-white mb-3">
+                  Members ({(viewingTeam.members?.filter((m: any) => m.role !== "mentor").length) || viewingTeam.members?.length || 0})
+                </h5>
+                <div className="space-y-2">
+                  {viewingTeam.members?.filter((m: any) => m.role !== "mentor").map((member: any) => (
+                    <div key={member.id} className={`bg-white/5 border rounded-lg p-3 ${
+                      member.id === viewingTeam.leaderId ? "border-amber-500/30 bg-amber-500/5" : "border-white/10"
+                    }`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-white font-semibold">{member.name || "Unnamed"}</p>
+                        {member.id === viewingTeam.leaderId && (
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                            <Crown size={10} />
+                            Leader
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">{member.email}</p>
                     </div>
-                    <p className="text-xs text-gray-500">{member.email}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+              {/* Contest admins can manage mentors on any team. */}
+              <TeamMentorPanel slug={slug} teamId={viewingTeam.id} canManage={true} />
             </div>
           )}
         </DialogContent>

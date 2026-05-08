@@ -1,37 +1,37 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
+import { submissions, teams, contestUsers } from "@/lib/db/schema";
+import { eq, inArray, and } from "drizzle-orm";
+import { requireLegacyJudge, errorResponse } from "@/lib/legacy-auth";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const az = await requireLegacyJudge();
 
-    // Only judges/admins can access all submissions
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
-      return NextResponse.json(
-        { error: "Only admins can access this" },
-        { status: 403 }
-      );
-    }
+    // Count judges from contest_users (not a hardcoded array length)
+    const [judges, contestTeams] = await Promise.all([
+      db.query.contestUsers.findMany({
+        where: and(
+          eq(contestUsers.contestId, az.defaultContestId),
+          inArray(contestUsers.role, ["judge", "admin"]),
+        ),
+        columns: { userId: true },
+      }),
+      db.query.teams.findMany({
+        where: eq(teams.contestId, az.defaultContestId),
+        columns: { id: true },
+      }),
+    ]);
+    const totalJudges = Math.max(judges.length, 1);
+    const teamIds = contestTeams.map((t) => t.id);
+    if (teamIds.length === 0) return NextResponse.json({ submissions: [] }, { status: 200 });
 
-    // Get all submissions with related data
     const allSubmissions = await db.query.submissions.findMany({
-      with: {
-        team: true,
-        scores: {
-          with: {
-            judge: true,
-          },
-        },
-      },
-      orderBy: (submissions, { desc }) => [desc(submissions.submittedAt)],
+      where: inArray(submissions.teamId, teamIds),
+      with: { team: true, scores: { with: { judge: true } } },
+      orderBy: (s, { desc }) => [desc(s.submittedAt)],
     });
 
-    // Format the response
     const formattedSubmissions = allSubmissions.map((submission) => ({
       id: submission.id,
       teamId: submission.teamId,
@@ -46,21 +46,18 @@ export async function GET() {
       aiScreenshots: submission.aiScreenshots,
       submittedAt: submission.submittedAt,
       updatedAt: submission.updatedAt,
-      wasEdited: submission.updatedAt && submission.submittedAt 
-        ? new Date(submission.updatedAt).getTime() > new Date(submission.submittedAt).getTime() + 1000
-        : false,
+      wasEdited:
+        submission.updatedAt && submission.submittedAt
+          ? new Date(submission.updatedAt).getTime() >
+            new Date(submission.submittedAt).getTime() + 1000
+          : false,
       scoresCount: submission.scores.length,
-      totalJudges: JUDGE_EMAILS.length,
-      isFullyScored: submission.scores.length >= JUDGE_EMAILS.length,
+      totalJudges,
+      isFullyScored: submission.scores.length >= totalJudges,
     }));
 
     return NextResponse.json({ submissions: formattedSubmissions }, { status: 200 });
   } catch (error) {
-    console.error("Get all submissions error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
-

@@ -16,8 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { JUDGE_EMAILS, MAX_APPROVED_TEAMS, PHASE_MAX_POINTS } from "@/lib/constants";
-import { Award, ExternalLink, CheckCircle, XCircle, Home, Settings, LogOut, Users, Crown } from "lucide-react";
+import { MAX_APPROVED_TEAMS, PHASE_MAX_POINTS } from "@/lib/constants";
+import { Award, ExternalLink, CheckCircle, XCircle, Home, Settings, LogOut, Users, Crown, FileDown } from "lucide-react";
 
 interface TeamMember {
   id: string;
@@ -99,8 +99,9 @@ export default function JudgingPage() {
     if (status === "unauthenticated") {
       router.push("/login");
     } else if (status === "authenticated") {
-      // Check if user is a judge
-      if (!JUDGE_EMAILS.includes(session?.user?.email || "")) {
+      // Check if user is a judge/admin on the default contest
+      const lr = session?.user?.legacyRole;
+      if (lr !== "judge" && lr !== "admin") {
         router.push("/dashboard");
         return;
       }
@@ -286,6 +287,17 @@ export default function JudgingPage() {
                 <Home className="mr-2" size={20} />
                 Dashboard
               </Button>
+              {/* Download a pre-filled offline XLSX — one sheet per phase, with
+                  editable score cells + live weighted-total formula. */}
+              <Button
+                onClick={() => { window.location.href = "/api/judging-sheet"; }}
+                variant="outline"
+                className="border-emerald-500/30 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20"
+                title="Download offline judging sheet (XLSX)"
+              >
+                <FileDown className="mr-2" size={20} />
+                Offline Sheet
+              </Button>
               <Button
                 onClick={() => router.push("/admin")}
                 className="bg-gradient-to-r from-electric-blue to-hot-pink"
@@ -441,7 +453,8 @@ export default function JudgingPage() {
                           ? ((parseFloat(existingScore.weightedScore) / 100) * phaseMax).toFixed(2)
                           : null;
                         const judgesScored = allScoresCount.get(submission.id) || 0;
-                        const totalJudges = JUDGE_EMAILS.length;
+                        // Use the judges-count returned by the API if present.
+                        const totalJudges = (submission as { totalJudges?: number }).totalJudges ?? 3;
                         const isComplete = judgesScored >= totalJudges;
                         
                         return (
