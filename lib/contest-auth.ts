@@ -27,10 +27,12 @@ export type ContestRole = "admin" | "judge" | "participant" | "mentor";
  *  - `source` = where that permission came from (contest-specific role
  *               or an implicit platform-admin override)
  *
- * Platform admins do NOT get automatic judge/admin power inside a contest
- * anymore. They get `inspect` — read-only visibility into any contest. To
- * actively judge or administer a contest they must be explicitly added to
- * contest_users for that contest, just like any other user.
+ * Platform admins get `inspect` here — read-only visibility into any contest
+ * — when they aren't in `contest_users`. But for admin-level mutations
+ * (archive, edit settings, manage tracks/users/teams, etc.) `canAdminContest`
+ * additionally grants platform admins access, since platform_admin is a
+ * global superuser role. To **judge** a contest (submit scores) they must
+ * still be explicitly added to contest_users for impartiality.
  */
 export type EffectiveContestRole = {
   // 'mentor' means attached to a team as an advisor — read-only, doesn't
@@ -183,18 +185,27 @@ export async function canReadContest(userId: string, contestId: string): Promise
 
 /**
  * True iff the caller is allowed to MUTATE contest data as an admin.
- * Platform-admin alone is NOT enough.
+ *
+ * Platform admins satisfy this for any contest, even when they aren't in
+ * `contest_users` — platform_admin is a global superuser role that can take
+ * any action in the system (archive, edit, manage users/teams/tracks, etc.).
+ * Contest-scoped admins (via `contest_users`) also satisfy this.
+ *
+ * Use `isContestAdmin` instead if you specifically need the narrower "is in
+ * contest_users as admin" check.
  *
  * The 3rd `_userEmail` parameter is accepted for back-compat with the
  * pre-refactor call sites and ignored — authz is now driven purely by the
- * `contest_users` table, not legacy email lists.
+ * `contest_users` table plus the global platform_admin role, not legacy
+ * email lists.
  */
 export async function canAdminContest(
   userId: string,
   contestId: string,
   _userEmail?: string,
 ): Promise<boolean> {
-  return isContestAdmin(userId, contestId);
+  if (await isContestAdmin(userId, contestId)) return true;
+  return isPlatformAdmin(userId);
 }
 
 /**
