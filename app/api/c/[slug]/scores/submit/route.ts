@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, submissions, scores, contests, contestUsers } from "@/lib/db/schema";
+import { submissions, scores } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
 
@@ -29,6 +29,14 @@ export async function POST(
     const contest = await resolveContest(slug);
     if (!contest) {
       return NextResponse.json({ error: "Contest not found" }, { status: 404 });
+    }
+
+    // Write-guard: frozen contests (completed/archived) don't accept new scores.
+    if (contest.status === "completed" || contest.status === "archived") {
+      return NextResponse.json(
+        { error: "Contest is completed or archived; scoring is frozen" },
+        { status: 409 }
+      );
     }
 
     // Verify user is a judge for this contest

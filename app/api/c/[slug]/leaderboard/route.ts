@@ -57,10 +57,11 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    // Leaderboard is intentionally public so /c/[slug]/results can render for
+    // unauthenticated visitors — including after a contest is archived.
+    // (The middleware already allowlists this path.)
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    void session;
 
     const { slug } = await params;
 
@@ -162,11 +163,16 @@ export async function GET(
           }
         }
 
-        // Build members list from contest-scoped membership
+        // Build members list from contest-scoped membership.
+        // Participants and mentors are both surfaced, but tagged so the
+        // client can display mentors distinctly (and exclude them from
+        // "team size" visuals).
         const members = team.contestMembers.map((cu) => ({
           id: cu.user?.id,
           name: cu.user?.name,
           isLeader: cu.user?.id === team.leaderId,
+          role: cu.role as "admin" | "judge" | "participant" | "mentor",
+          participantRole: cu.participantRole ?? null,
         }));
 
         // Build dynamic phase scores object

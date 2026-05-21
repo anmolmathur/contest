@@ -3,8 +3,13 @@
 // New contests should use per-contest config from the database
 // ============================================================
 
-// Judge Emails (legacy - new contests use contest_users table)
-export const JUDGE_EMAILS: string[] = [
+/**
+ * @deprecated Replaced by the `contest_users` table. Do NOT reference in new code.
+ * Kept here as a one-shot seed list for the migration-time backfill
+ * (see scripts/seed-legacy-judges.ts). Legacy routes now resolve authz via
+ * lib/legacy-auth.ts which consults the default contest's contest_users rows.
+ */
+export const LEGACY_JUDGE_EMAIL_SEED: string[] = [
   "shantanu@teamlease.com",
   "jaideep.k@teamlease.com",
   "anmol.mathur@teamlease.com",

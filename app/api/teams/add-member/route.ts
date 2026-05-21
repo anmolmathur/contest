@@ -1,108 +1,107 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, teams } from "@/lib/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
-import { MAX_TEAM_MEMBERS, ROLE_LIMITS } from "@/lib/constants";
+import { users, teams, contestUsers } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { legacyAuthz, errorResponse, LegacyAuthError } from "@/lib/legacy-auth";
+import { getContestById } from "@/lib/contest-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const az = await legacyAuthz();
+    if (!az.canRead) throw new LegacyAuthError(403, "Join the contest first");
+    if (!az.isMutable) throw new LegacyAuthError(409, "Contest is frozen");
 
     const body = await req.json();
     const { userId, teamId } = body;
-
     if (!userId || !teamId) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Verify the requesting user is the team creator
-    const team = await db.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-    });
-
-    if (!team) {
-      return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    const team = await db.query.teams.findFirst({ where: eq(teams.id, teamId) });
+    if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    if (team.contestId !== az.defaultContestId) {
+      throw new LegacyAuthError(403, "Team is not in your contest");
     }
-
-    if (team.createdBy !== session.user.id) {
+    if (team.createdBy !== az.userId && !az.isJudge) {
       return NextResponse.json(
-        { error: "Only team creator can add members" },
+        { error: "Only team creator or admin can add members" },
         { status: 403 }
       );
     }
 
-    // Check if user to be added exists and is available
-    const userToAdd = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
-
+    const userToAdd = await db.query.users.findFirst({ where: eq(users.id, userId) });
     if (!userToAdd) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    if (userToAdd.teamId) {
+    // Check if user to add is already on a team in this contest
+    const existingCu = await db.query.contestUsers.findFirst({
+      where: and(
+        eq(contestUsers.contestId, az.defaultContestId),
+        eq(contestUsers.userId, userId),
+      ),
+    });
+    if (existingCu?.teamId) {
       return NextResponse.json(
-        { error: "User is already in a team" },
+        { error: "User is already in a team for this contest" },
         { status: 400 }
       );
     }
 
-    // Get current team members
-    const teamMembers = await db.query.users.findMany({
-      where: eq(users.teamId, teamId),
-    });
+    // Team-size limit from contest config
+    const contest = await getContestById(az.defaultContestId);
+    const maxTeamMembers = contest?.maxTeamMembers ?? 7;
 
-    // Check team size limit
-    if (teamMembers.length >= MAX_TEAM_MEMBERS) {
+    const currentMembers = await db.query.contestUsers.findMany({
+      where: and(
+        eq(contestUsers.contestId, az.defaultContestId),
+        eq(contestUsers.teamId, teamId),
+      ),
+    });
+    // Mentors don't count against maxTeamMembers.
+    const participantMembers = currentMembers.filter((m) => m.role !== "mentor");
+    if (participantMembers.length >= maxTeamMembers) {
       return NextResponse.json(
-        { error: `Team is full (maximum ${MAX_TEAM_MEMBERS} members)` },
+        { error: `Team is full (maximum ${maxTeamMembers} members)` },
         { status: 400 }
       );
     }
 
-    // Count current roles
-    const roleCounts: Record<string, number> = {};
-    teamMembers.forEach((member) => {
-      if (member.role) {
-        roleCounts[member.role] = (roleCounts[member.role] || 0) + 1;
-      }
-    });
-
-    // Check if adding this user would exceed role limits
-    const newUserRole = userToAdd.role;
-    if (newUserRole) {
-      const currentCount = roleCounts[newUserRole] || 0;
-      const limit = ROLE_LIMITS[newUserRole as keyof typeof ROLE_LIMITS];
-      if (limit !== undefined && currentCount >= limit) {
-        return NextResponse.json(
-          {
-            error: `Maximum ${limit} ${newUserRole}(s) allowed in a team`,
-          },
-          { status: 400 }
-        );
+    // Role-limit check driven by contest.roleConfig (no hardcoded ROLE_LIMITS)
+    const roleConfig = (contest?.roleConfig as Array<{ role: string; maxPerTeam: number }> | null) ?? [];
+    const newRole = existingCu?.participantRole ?? userToAdd.role ?? null;
+    if (newRole) {
+      const limit = roleConfig.find((r) => r.role === newRole)?.maxPerTeam;
+      if (limit !== undefined) {
+        // Mentors exempt from per-role caps.
+        const countInRole = participantMembers.filter((m) => m.participantRole === newRole).length;
+        if (countInRole >= limit) {
+          return NextResponse.json(
+            { error: `Maximum ${limit} ${newRole}(s) allowed in a team` },
+            { status: 400 }
+          );
+        }
       }
     }
 
-    // Add user to team
-    await db.update(users).set({ teamId }).where(eq(users.id, userId));
+    // Upsert contest_users row
+    if (existingCu) {
+      await db
+        .update(contestUsers)
+        .set({ teamId })
+        .where(eq(contestUsers.id, existingCu.id));
+    } else {
+      await db.insert(contestUsers).values({
+        contestId: az.defaultContestId,
+        userId,
+        role: "participant",
+        participantRole: userToAdd.role ?? null,
+        teamId,
+      });
+    }
 
-    return NextResponse.json(
-      { message: "Member added successfully" },
-      { status: 200 }
-    );
+    return NextResponse.json({ message: "Member added successfully" }, { status: 200 });
   } catch (error) {
-    console.error("Add member error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
-

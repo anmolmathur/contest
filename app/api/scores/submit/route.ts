@@ -1,24 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
-import { scores } from "@/lib/db/schema";
+import { scores, submissions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { requireLegacyJudge, errorResponse, LegacyAuthError } from "@/lib/legacy-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Verify user is a judge
-    if (!JUDGE_EMAILS.includes(session.user.email || "")) {
-      return NextResponse.json(
-        { error: "Only judges can submit scores" },
-        { status: 403 }
-      );
-    }
+    const az = await requireLegacyJudge();
+    if (!az.isMutable) throw new LegacyAuthError(409, "Contest is completed or archived; scoring is frozen");
 
     const body = await req.json();
     const {
@@ -30,7 +19,6 @@ export async function POST(req: NextRequest) {
       executionScore,
     } = body;
 
-    // Validate required fields
     if (
       !submissionId ||
       aiUsageScore === undefined ||
@@ -45,7 +33,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate score ranges (0-100)
     const scoresArray = [
       aiUsageScore,
       businessImpactScore,
@@ -60,16 +47,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if judge already scored this submission
+    // Tenant isolation: verify the submission belongs to the default contest
+    const submission = await db.query.submissions.findFirst({
+      where: eq(submissions.id, submissionId),
+      with: { team: true },
+    });
+    if (!submission) {
+      return NextResponse.json({ error: "Submission not found" }, { status: 404 });
+    }
+    if (submission.team?.contestId !== az.defaultContestId) {
+      return NextResponse.json(
+        { error: "Submission is not in your contest" },
+        { status: 403 }
+      );
+    }
+
     const existingScore = await db.query.scores.findFirst({
       where: and(
         eq(scores.submissionId, submissionId),
-        eq(scores.judgeId, session.user.id)
+        eq(scores.judgeId, az.userId)
       ),
     });
 
     if (existingScore) {
-      // Update existing score
       const [updatedScore] = await db
         .update(scores)
         .set({
@@ -88,12 +88,11 @@ export async function POST(req: NextRequest) {
         { status: 200 }
       );
     } else {
-      // Create new score
       const [newScore] = await db
         .insert(scores)
         .values({
           submissionId,
-          judgeId: session.user.id,
+          judgeId: az.userId,
           aiUsageScore,
           businessImpactScore,
           uxScore,
@@ -108,11 +107,7 @@ export async function POST(req: NextRequest) {
       );
     }
   } catch (error) {
-    console.error("Score submission error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
 

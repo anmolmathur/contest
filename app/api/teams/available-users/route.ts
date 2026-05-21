@@ -1,35 +1,40 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
-import { isNull } from "drizzle-orm";
+import { users, contestUsers } from "@/lib/db/schema";
+import { eq, and, notInArray, isNotNull } from "drizzle-orm";
+import { legacyAuthz, errorResponse, LegacyAuthError } from "@/lib/legacy-auth";
 
+/**
+ * List users who are not yet on a team in the default contest.
+ *
+ * Previously this queried `users WHERE teamId IS NULL` which is wrong in a
+ * multi-tenant world — a user could be on Contest A's team but still be
+ * "available" for Contest B. We now compute availability per-contest against
+ * `contest_users`.
+ */
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const az = await legacyAuthz();
+    if (!az.canRead) throw new LegacyAuthError(403, "No access");
 
-    // Get users without a team
+    // Users with an assigned team in the default contest.
+    const takenLinks = await db.query.contestUsers.findMany({
+      where: and(
+        eq(contestUsers.contestId, az.defaultContestId),
+        isNotNull(contestUsers.teamId),
+      ),
+      columns: { userId: true },
+    });
+    const takenIds = takenLinks.map((r) => r.userId);
+
+    // All other users are available to join a team in this contest.
     const availableUsers = await db.query.users.findMany({
-      where: isNull(users.teamId),
-      columns: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        department: true,
-      },
+      where: takenIds.length > 0 ? notInArray(users.id, takenIds) : undefined,
+      columns: { id: true, name: true, email: true, role: true, department: true },
     });
 
     return NextResponse.json({ users: availableUsers }, { status: 200 });
   } catch (error) {
-    console.error("Available users error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
-

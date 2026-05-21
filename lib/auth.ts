@@ -1,10 +1,45 @@
 import NextAuth, { DefaultSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { users, contestUsers, contests } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { JUDGE_EMAILS } from "@/lib/constants";
+
+/**
+ * `legacyRole` is a derived field surfaced on the session for backward
+ * compatibility with the pre-multi-tenant UI (/dashboard, /admin, /judging).
+ * It reflects the caller's role in the *default contest* and is computed
+ * once at login (JWT is stale-on-re-login).
+ */
+export type LegacyRole = "admin" | "judge" | "participant" | null;
+
+async function computeLegacyRole(userId: string): Promise<LegacyRole> {
+  // Pick the default contest (same resolution logic as lib/contest-auth.ts)
+  const byFlag = await db.query.contests.findFirst({
+    where: eq(contests.isDefault, true),
+  });
+  const byStatus = byFlag
+    ? null
+    : await db.query.contests.findFirst({
+        where: eq(contests.status, "active"),
+        orderBy: (c, { asc }) => [asc(c.createdAt)],
+      });
+  const fallback = byFlag || byStatus
+    ? null
+    : await db.query.contests.findFirst({
+        orderBy: (c, { asc }) => [asc(c.createdAt)],
+      });
+  const contest = byFlag ?? byStatus ?? fallback;
+  if (!contest) return null;
+
+  const cu = await db.query.contestUsers.findFirst({
+    where: and(
+      eq(contestUsers.contestId, contest.id),
+      eq(contestUsers.userId, userId),
+    ),
+  });
+  return (cu?.role as LegacyRole) ?? null;
+}
 
 declare module "next-auth" {
   interface Session {
@@ -13,6 +48,7 @@ declare module "next-auth" {
       role: string | null;
       teamId: string | null;
       globalRole: string;
+      legacyRole: LegacyRole;
     } & DefaultSession["user"];
   }
 
@@ -20,10 +56,9 @@ declare module "next-auth" {
     role: string | null;
     teamId: string | null;
     globalRole: string;
+    legacyRole?: LegacyRole;
   }
 }
-
-export { JUDGE_EMAILS };
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -55,6 +90,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
+        const legacyRole = await computeLegacyRole(user.id);
+
         return {
           id: user.id,
           email: user.email,
@@ -63,6 +100,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           role: user.role,
           teamId: user.teamId,
           globalRole: user.globalRole,
+          legacyRole,
         };
       },
     }),
@@ -74,6 +112,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.role = user.role;
         token.teamId = user.teamId;
         token.globalRole = user.globalRole;
+        token.legacyRole = user.legacyRole ?? null;
       }
       return token;
     },
@@ -83,6 +122,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.role = token.role as string | null;
         session.user.teamId = token.teamId as string | null;
         session.user.globalRole = (token.globalRole as string) || "user";
+        session.user.legacyRole = (token.legacyRole as LegacyRole) ?? null;
       }
       return session;
     },

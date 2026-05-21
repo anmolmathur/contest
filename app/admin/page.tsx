@@ -8,6 +8,7 @@ import GlassCard from "@/components/GlassCard";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -30,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { JUDGE_EMAILS, ROLES, TRACKS } from "@/lib/constants";
+import { ROLES, TRACKS } from "@/lib/constants";
 import {
   Users,
   UsersRound,
@@ -56,6 +57,7 @@ interface User {
   name: string;
   email: string;
   role: string;
+  globalRole?: string | null;
   department: string | null;
   teamId: string | null;
   teamName: string | null;
@@ -184,8 +186,9 @@ export default function AdminPage() {
     if (status === "unauthenticated") {
       router.push("/login");
     } else if (status === "authenticated") {
-      // Check if user is a judge
-      if (!JUDGE_EMAILS.includes(session?.user?.email || "")) {
+      // Check if user is a judge/admin on the default contest
+      const lr = session?.user?.legacyRole;
+      if (lr !== "judge" && lr !== "admin") {
         router.push("/dashboard");
         return;
       }
@@ -852,7 +855,7 @@ export default function AdminPage() {
                               variant="ghost"
                               size="sm"
                               className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                              disabled={JUDGE_EMAILS.includes(user.email)}
+                              disabled={user.globalRole === "platform_admin"}
                             >
                               <Trash2 size={16} />
                             </Button>
@@ -1121,8 +1124,7 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <Label className="text-gray-200">Password</Label>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={userForm.password}
                     onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
                     placeholder="Enter password"
@@ -1182,8 +1184,7 @@ export default function AdminPage() {
                   </p>
                   <div>
                     <Label className="text-gray-200">New Password</Label>
-                    <Input
-                      type="password"
+                    <PasswordInput
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Enter new password (min 6 characters)"

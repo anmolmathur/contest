@@ -1,20 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, teams, submissions } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { JUDGE_EMAILS } from "@/lib/constants";
+import { teams, contestUsers, submissions } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { legacyAuthz, errorResponse, LegacyAuthError } from "@/lib/legacy-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const az = await legacyAuthz();
+    if (!az.canRead) throw new LegacyAuthError(403, "No access to default contest");
+    if (!az.isMutable) throw new LegacyAuthError(409, "Contest is frozen");
 
     const body = await req.json();
     const { userId, teamId } = body;
-
     if (!userId || !teamId) {
       return NextResponse.json(
         { error: "Missing required fields: userId and teamId" },
@@ -22,27 +19,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get the team
-    const team = await db.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-    });
-
-    if (!team) {
-      return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    const team = await db.query.teams.findFirst({ where: eq(teams.id, teamId) });
+    if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    if (team.contestId !== az.defaultContestId) {
+      throw new LegacyAuthError(403, "Team is not in your contest");
     }
 
-    // Check if user is creator or admin (judge)
-    const isCreator = team.createdBy === session.user.id;
-    const isAdmin = JUDGE_EMAILS.includes(session.user.email || "");
-
-    if (!isCreator && !isAdmin) {
+    const isCreator = team.createdBy === az.userId;
+    if (!isCreator && !az.isJudge) {
       return NextResponse.json(
         { error: "Only team creator or admin can remove members" },
         { status: 403 }
       );
     }
 
-    // Check if the user to remove is the team creator
     if (userId === team.createdBy) {
       return NextResponse.json(
         { error: "Cannot remove the team creator. Delete the team instead." },
@@ -50,12 +40,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if team has any submissions (only allow removal before submission for non-admins)
-    if (!isAdmin) {
+    if (!az.isJudge) {
       const teamSubmissions = await db.query.submissions.findMany({
         where: eq(submissions.teamId, teamId),
       });
-
       if (teamSubmissions.length > 0) {
         return NextResponse.json(
           { error: "Cannot remove members after submissions have been made" },
@@ -64,37 +52,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Verify the user is actually in this team
-    const userToRemove = await db.query.users.findFirst({
-      where: eq(users.id, userId),
+    // Verify membership via contest_users.
+    const cu = await db.query.contestUsers.findFirst({
+      where: and(
+        eq(contestUsers.contestId, az.defaultContestId),
+        eq(contestUsers.userId, userId),
+      ),
     });
-
-    if (!userToRemove) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    if (userToRemove.teamId !== teamId) {
+    if (!cu || cu.teamId !== teamId) {
       return NextResponse.json(
         { error: "User is not a member of this team" },
         { status: 400 }
       );
     }
 
-    // Remove user from team
     await db
-      .update(users)
+      .update(contestUsers)
       .set({ teamId: null })
-      .where(eq(users.id, userId));
+      .where(eq(contestUsers.id, cu.id));
 
-    return NextResponse.json({
-      message: "Member removed successfully",
-    });
+    return NextResponse.json({ message: "Member removed successfully" });
   } catch (error) {
-    console.error("Remove member error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
-

@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local DB dumps
+/backups
+*.dump
+
+# local agent config
+/.claude
+
+# Production sync — never commit raw prod data
+scripts/sync-from-prod/*.sql
+!scripts/sync-from-prod/anonymize.sql
+!scripts/sync-from-prod/post-process.sql
+scripts/sync-from-prod/inbox/*
+!scripts/sync-from-prod/inbox/README.md
+scripts/sync-from-prod/backups/

@@ -1,24 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { isPlatformAdmin } from "@/lib/contest-auth";
 
+/**
+ * Create a new user globally. This operates on the global user pool
+ * (not contest-scoped) and is therefore restricted to platform admins.
+ */
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    // Verify user is a platform admin or legacy judge
-    const isAdmin = await isPlatformAdmin(session.user.id);
-    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
+    if (!(await isPlatformAdmin(session.user.id))) {
       return NextResponse.json(
-        { error: "Only admins can create users" },
+        { error: "Only platform admins can create users" },
         { status: 403 }
       );
     }
@@ -26,7 +26,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { name, email, password, role, globalRole, department } = body;
 
-    // Validate required fields — accept either role (legacy) or globalRole (new platform admin form)
     if (!name || !email || !password || (!role && !globalRole)) {
       return NextResponse.json(
         { error: "Missing required fields: name, email, password, and role are required" },
@@ -34,11 +33,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if user already exists
-    const existingUser = await db.query.users.findFirst({
-      where: eq(users.email, email),
-    });
-
+    const existingUser = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (existingUser) {
       return NextResponse.json(
         { error: "User with this email already exists" },
@@ -46,10 +41,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
     const [newUser] = await db
       .insert(users)
       .values({
@@ -78,10 +70,6 @@ export async function POST(req: NextRequest) {
     );
   } catch (error) {
     console.error("Admin create user error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-

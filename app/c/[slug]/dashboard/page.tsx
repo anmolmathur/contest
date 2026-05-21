@@ -3,6 +3,7 @@
 import { useContest } from "@/lib/contest-context";
 import { useSession, signOut } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
+import { TeamMentorPanel } from "@/components/TeamMentorPanel";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -1284,6 +1285,16 @@ export default function ContestDashboardPage() {
                       Add Member
                     </Button>
                   )}
+
+                {/* Mentor panel. Leaders / creators can add & remove; ordinary
+                    members see a read-only view of who's mentoring the team. */}
+                <div className="mt-6">
+                  <TeamMentorPanel
+                    slug={contest.slug}
+                    teamId={team.id}
+                    canManage={team.leaderId === session?.user?.id || isCreator}
+                  />
+                </div>
               </div>
             )}
           </GlassCard>

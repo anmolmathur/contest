@@ -10,6 +10,7 @@ import TimelineNode from "@/components/TimelineNode";
 import PrizeCard from "@/components/PrizeCard";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import { getImageUrl } from "@/lib/imageHelper";
+import { Radio, Trophy } from "lucide-react";
 
 export default function ContestPage() {
   const { contest } = useContest();
@@ -24,6 +25,28 @@ export default function ContestPage() {
   const isRegistrationClosed = contest.registrationDeadline
     ? new Date() > new Date(contest.registrationDeadline)
     : false;
+
+  // Status-aware CTA for the results/leaderboard button:
+  //   active    → "Live Leaderboard" with a pulsing red dot (broadcast feel)
+  //   completed → "View Final Results" with a trophy (awards feel)
+  //   archived  → "View Results" (historical)
+  //   draft     → hidden entirely (nothing to show yet)
+  const showResultsCta = contest.status !== "draft";
+  const resultsCtaLabel =
+    contest.status === "active"
+      ? "Live Leaderboard"
+      : contest.status === "completed"
+        ? "View Final Results"
+        : "View Results";
+  const resultsCtaIcon =
+    contest.status === "active" ? (
+      <span
+        className="inline-block h-2.5 w-2.5 rounded-full bg-red-500"
+        style={{ boxShadow: "0 0 0 0 rgba(239,68,68,0.6)", animation: "pulseDot 1.4s ease-in-out infinite" }}
+      />
+    ) : (
+      <Trophy size={16} />
+    );
 
   return (
     <main className="min-h-screen">
@@ -82,6 +105,19 @@ export default function ContestPage() {
                 <Link href={`/c/${slug}/dashboard`}>
                   <GlowButton>Go to Dashboard</GlowButton>
                 </Link>
+                {showResultsCta && (
+                  <Link href={`/c/${slug}/results`}>
+                    <button
+                      className={`px-8 py-4 rounded-xl font-bold text-white border transition-all flex items-center gap-2 ${
+                        contest.status === "active"
+                          ? "bg-red-500/15 border-red-500/40 hover:bg-red-500/25"
+                          : "bg-amber-500/15 border-amber-400/40 hover:bg-amber-500/25"
+                      }`}
+                    >
+                      {resultsCtaIcon} {resultsCtaLabel}
+                    </button>
+                  </Link>
+                )}
                 <Link href={`/c/${slug}/rules`}>
                   <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
                     View Rules
@@ -106,6 +142,19 @@ export default function ContestPage() {
                     <GlowButton>{heroCtaText}</GlowButton>
                   </Link>
                 )}
+                {showResultsCta && (
+                  <Link href={`/c/${slug}/results`}>
+                    <button
+                      className={`px-8 py-4 rounded-xl font-bold text-white border transition-all flex items-center gap-2 ${
+                        contest.status === "active"
+                          ? "bg-red-500/15 border-red-500/40 hover:bg-red-500/25"
+                          : "bg-amber-500/15 border-amber-400/40 hover:bg-amber-500/25"
+                      }`}
+                    >
+                      {resultsCtaIcon} {resultsCtaLabel}
+                    </button>
+                  </Link>
+                )}
                 <Link href={`/c/${slug}/rules`}>
                   <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
                     View Rules
@@ -119,6 +168,16 @@ export default function ContestPage() {
               </>
             )}
           </motion.div>
+
+          {/* keyframes for the live pulse dot; colocated so the button doesn't
+              depend on any new global CSS rule. */}
+          <style jsx global>{`
+            @keyframes pulseDot {
+              0%   { box-shadow: 0 0 0 0    rgba(239,68,68,0.6); }
+              70%  { box-shadow: 0 0 0 10px rgba(239,68,68,0);   }
+              100% { box-shadow: 0 0 0 0    rgba(239,68,68,0);   }
+            }
+          `}</style>
         </div>
 
         <motion.div
@@ -274,6 +333,19 @@ export default function ContestPage() {
                   <Link href={`/c/${slug}/dashboard`}>
                     <GlowButton>Go to Dashboard</GlowButton>
                   </Link>
+                  {showResultsCta && (
+                    <Link href={`/c/${slug}/results`}>
+                      <button
+                        className={`px-8 py-4 rounded-xl font-bold text-white border transition-all flex items-center gap-2 ${
+                          contest.status === "active"
+                            ? "bg-red-500/15 border-red-500/40 hover:bg-red-500/25"
+                            : "bg-amber-500/15 border-amber-400/40 hover:bg-amber-500/25"
+                        }`}
+                      >
+                        {resultsCtaIcon} {resultsCtaLabel}
+                      </button>
+                    </Link>
+                  )}
                   <Link href={`/c/${slug}/rules`}>
                     <button className="px-8 py-4 rounded-xl font-bold text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-all">
                       Competition Rules
@@ -296,6 +368,19 @@ export default function ContestPage() {
                   ) : (
                     <Link href="/register">
                       <GlowButton>Get Started</GlowButton>
+                    </Link>
+                  )}
+                  {showResultsCta && (
+                    <Link href={`/c/${slug}/results`}>
+                      <button
+                        className={`px-8 py-4 rounded-xl font-bold text-white border transition-all flex items-center gap-2 ${
+                          contest.status === "active"
+                            ? "bg-red-500/15 border-red-500/40 hover:bg-red-500/25"
+                            : "bg-amber-500/15 border-amber-400/40 hover:bg-amber-500/25"
+                        }`}
+                      >
+                        {resultsCtaIcon} {resultsCtaLabel}
+                      </button>
                     </Link>
                   )}
                   <Link href={`/c/${slug}/rules`}>

@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { certificateTemplates } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { JUDGE_EMAILS } from "@/lib/constants";
+import { legacyAuthz } from "@/lib/legacy-auth";
 
 // GET single template
 export async function GET(
@@ -14,11 +14,11 @@ export async function GET(
     const session = await auth();
     const { id } = await params;
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    if (!JUDGE_EMAILS.includes(session.user.email)) {
+    const az = await legacyAuthz();
+    if (!az.isJudge) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -57,11 +57,11 @@ export async function PUT(
     const session = await auth();
     const { id } = await params;
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    if (!JUDGE_EMAILS.includes(session.user.email)) {
+    const az = await legacyAuthz();
+    if (!az.isJudge) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -137,11 +137,11 @@ export async function DELETE(
     const session = await auth();
     const { id } = await params;
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    if (!JUDGE_EMAILS.includes(session.user.email)) {
+    const az = await legacyAuthz();
+    if (!az.isJudge) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

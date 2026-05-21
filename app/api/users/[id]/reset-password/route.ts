@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { JUDGE_EMAILS } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -16,12 +15,9 @@ export async function POST(
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    // Only platform admins or legacy judges can reset passwords
-    const isAdmin = await isPlatformAdmin(session.user.id);
-    if (!isAdmin && !JUDGE_EMAILS.includes(session.user.email || "")) {
+    if (!(await isPlatformAdmin(session.user.id))) {
       return NextResponse.json(
-        { error: "Only admins can reset passwords" },
+        { error: "Only platform admins can reset passwords" },
         { status: 403 }
       );
     }
