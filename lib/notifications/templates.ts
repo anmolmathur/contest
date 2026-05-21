@@ -70,6 +70,32 @@ export function phaseStartedTemplate(ctx: PhaseStartedCtx) {
   };
 }
 
+export type PasswordResetCtx = Omit<BaseCtx, "contestName"> & {
+  contestName: string;
+  expiresInMinutes: number;
+};
+export function passwordResetTemplate(ctx: PasswordResetCtx) {
+  const safeUrl = ctx.actionUrl ?? "#";
+  return {
+    subject: `Reset your ${ctx.contestName} password`,
+    html: wrap(
+      "Reset your password",
+      `<p>Hi ${escapeHtml(ctx.recipientName ?? "there")},</p>
+       <p>We received a request to reset the password on your ${escapeHtml(ctx.contestName)} account.</p>
+       <p>Click the button below to choose a new password. This link expires in <b>${ctx.expiresInMinutes} minutes</b> and can only be used once.</p>
+       <p style="margin:24px 0;"><a href="${safeUrl}" style="background:#7c3aed;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;">Reset password</a></p>
+       <p style="font-size:12px;color:#64748b;">If the button doesn't work, paste this link into your browser:<br/>
+       <span style="word-break:break-all;">${safeUrl}</span></p>
+       <p style="font-size:12px;color:#64748b;">If you didn't request this, you can safely ignore this email — your password won't change.</p>`,
+      { ...ctx, actionUrl: undefined }, // suppress the default wrap CTA; we render our own button above
+    ),
+    text:
+      `Reset your ${ctx.contestName} password\n\n` +
+      `Open this link within ${ctx.expiresInMinutes} minutes to choose a new password:\n${safeUrl}\n\n` +
+      `If you didn't request this, ignore this email — your password won't change.\n`,
+  };
+}
+
 export type ScoresPublishedCtx = BaseCtx & { phaseNumber: number };
 export function scoresPublishedTemplate(ctx: ScoresPublishedCtx) {
   return {

@@ -15,7 +15,8 @@ export default auth(async (req) => {
     const slug = await resolveHostToSlug(host);
     if (slug && !pathname.startsWith("/c/") && !pathname.startsWith("/api/") &&
         !pathname.startsWith("/platform") && !pathname.startsWith("/_next") &&
-        !pathname.startsWith("/login") && !pathname.startsWith("/register")) {
+        !pathname.startsWith("/login") && !pathname.startsWith("/register") &&
+        !pathname.startsWith("/forgot-password") && !pathname.startsWith("/reset-password")) {
       const rewritten = new URL(`/c/${slug}${pathname === "/" ? "" : pathname}${search ?? ""}`, req.url);
       return NextResponse.rewrite(rewritten);
     }
@@ -26,6 +27,8 @@ export default auth(async (req) => {
     "/",
     "/login",
     "/register",
+    "/forgot-password",
+    "/reset-password",
     "/api/auth",
     "/api/contests", // public contest listing
     "/api/tls-ask",  // reverse-proxy verification hook (no auth)
