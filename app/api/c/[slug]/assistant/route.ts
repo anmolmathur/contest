@@ -114,6 +114,7 @@ export async function POST(
         controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
         controller.close();
       } catch (e) {
+        console.error("[assistant] OpenAI streaming error:", e);
         const msg = e instanceof Error ? e.message : "AI error";
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
         controller.close();

@@ -12,6 +12,8 @@
  * contest's rules/FAQ/phase config. We only handle generation + streaming.
  */
 
+import OpenAI from "openai";
+
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export type ChatStreamHandler = (chunk: string) => void;
@@ -43,8 +45,6 @@ async function streamOpenAI(
   onChunk: ChatStreamHandler,
   opts?: { model?: string; temperature?: number },
 ): Promise<void> {
-  // Dynamic import so `openai` is only loaded when configured.
-  const { default: OpenAI } = await import("openai");
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const stream = await client.chat.completions.create({
     model: opts?.model ?? "gpt-4o-mini",
