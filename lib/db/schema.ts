@@ -327,6 +327,18 @@ export const verificationTokens = pgTable("verification_tokens", {
   compoundKey: unique().on(table.identifier, table.token),
 }));
 
+// Password reset tokens. The `token_hash` column stores SHA-256(rawToken)
+// rather than the raw token itself, so a DB leak doesn't yield usable links.
+// See lib/auth/password-reset.ts for the issue/consume helpers.
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
+  usedAt: timestamp("used_at", { mode: "date" }),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+});
+
 // Relations
 export const contestsRelations = relations(contests, ({ one, many }) => ({
   creator: one(users, {

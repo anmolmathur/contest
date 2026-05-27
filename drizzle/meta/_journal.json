@@ -50,6 +50,13 @@
       "when": 1776943333546,
       "tag": "0006_good_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779000000000,
+      "tag": "0007_password_reset_tokens",
+      "breakpoints": true
     }
   ]
 }
