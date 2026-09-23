@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ---- validate model output ---------------------------------------------
-  const out = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const out = normaliseModelOutput(raw);
   const reply =
     str(out.reply, 2000) ??
     (out.draft ? "Here's a draft — review it and apply it to the form." : "Could you tell me a bit more about the contest?");
@@ -235,3 +235,32 @@ async function loadContest(slug: string) {
   });
   return c ?? null;
 }
+
+// Models occasionally wrap the answer ({"response": {...}}) or return the
+// draft/patch at the top level instead of under "draft". Accept those shapes.
+const DRAFT_KEYS = new Set([
+  "contestType", "name", "slug", "description", "heroTitle", "heroSubtitle", "heroCtaText", "supportEmail",
+  "rulesContent", "eligibilityRules", "teamStructureRules", "deliverableRules", "startDate", "endDate",
+  "registrationDeadline", "maxTeams", "maxApprovedTeams", "maxTeamMembers", "tracks", "phaseConfig",
+  "scoringCriteria", "scoringScale", "submissionFields", "terminology", "roleConfig", "prizes", "faqConfig",
+  "agenda", "speakers", "settings",
+]);
+
+function normaliseModelOutput(raw: unknown): Record<string, unknown> {
+  let out = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  if (!("reply" in out) && !("draft" in out)) {
+    const inner = Object.values(out).find(
+      (v) => v && typeof v === "object" && !Array.isArray(v) && ("reply" in (v as object) || "draft" in (v as object)),
+    );
+    if (inner) out = inner as Record<string, unknown>;
+  }
+  if (!out.draft || typeof out.draft !== "object") {
+    const topLevel = Object.fromEntries(Object.entries(out).filter(([k]) => DRAFT_KEYS.has(k)));
+    if (Object.keys(topLevel).length > 0) out = { ...out, draft: topLevel };
+  }
+  if (!("reply" in out) && !out.draft) {
+    console.warn("[ai/contest-setup] unexpected model output keys:", Object.keys(out).slice(0, 20));
+  }
+  return out;
+}
+
