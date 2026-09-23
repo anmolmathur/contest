@@ -20,9 +20,14 @@ import { invalidateHostCache } from "@/lib/tenant-resolver";
  * token we issued earlier. For a platform this scale that's overkill.
  */
 export async function GET(req: NextRequest) {
-  const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0];
-  const override = req.nextUrl.searchParams.get("host");
-  const effectiveHost = override ? override.toLowerCase() : host;
+  // Only the Host the request actually arrived on counts as proof of DNS
+  // control. (A ?host= override used to exist here; it let anyone verify any
+  // pending domain without DNS pointing at us, so it was removed.)
+  const effectiveHost = (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "")
+    .toLowerCase()
+    .split(",")[0]
+    .trim()
+    .split(":")[0];
 
   if (!effectiveHost) {
     return NextResponse.json({ ok: false, reason: "no host" }, { status: 400 });

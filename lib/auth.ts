@@ -1,9 +1,66 @@
 import NextAuth, { DefaultSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import Google from "next-auth/providers/google";
+import type { Provider } from "next-auth/providers";
 import { db } from "@/lib/db";
 import { users, contestUsers, contests } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { userTypeForEmail } from "@/lib/user-type";
+
+/** Case-insensitive user lookup (older rows have mixed-case emails). */
+async function findUserByEmail(email: string) {
+  return db.query.users.findFirst({
+    where: sql`lower(${users.email}) = ${email.trim().toLowerCase()}`,
+  });
+}
+
+/** Google SSO is on when both env vars are set (AUTH_GOOGLE_ID/SECRET or GOOGLE_CLIENT_ID/SECRET). */
+export function googleSsoEnabled(): boolean {
+  return !!(
+    (process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID) &&
+    (process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET)
+  );
+}
+
+/**
+ * First Google login auto-creates the account. Existing accounts with the
+ * same (verified) email are reused, so a user who registered with a password
+ * can also sign in with Google. userType is refreshed from the email domain
+ * on every login.
+ */
+async function upsertGoogleUser(profile: { email: string; name?: string | null; picture?: string | null }) {
+  const email = profile.email.trim().toLowerCase();
+  const userType = userTypeForEmail(email);
+  const existing = await findUserByEmail(email);
+  if (existing) {
+    await db
+      .update(users)
+      .set({
+        name: existing.name || profile.name || email.split("@")[0],
+        image: existing.image || profile.picture || null,
+        emailVerified: existing.emailVerified ?? new Date(),
+        userType,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, existing.id));
+    return { ...existing, userType };
+  }
+  const [created] = await db
+    .insert(users)
+    .values({
+      email,
+      name: profile.name || email.split("@")[0],
+      image: profile.picture || null,
+      emailVerified: new Date(),
+      userType,
+      department: userType === "internal" ? "TeamLease" : null,
+    })
+    .returning();
+  return created;
+}
+
+const providers: Provider[] = [];
 
 /**
  * `legacyRole` is a derived field surfaced on the session for backward
@@ -49,20 +106,20 @@ declare module "next-auth" {
       teamId: string | null;
       globalRole: string;
       legacyRole: LegacyRole;
+      userType: "internal" | "external";
     } & DefaultSession["user"];
   }
 
   interface User {
-    role: string | null;
-    teamId: string | null;
-    globalRole: string;
+    role?: string | null;
+    teamId?: string | null;
+    globalRole?: string;
     legacyRole?: LegacyRole;
+    userType?: "internal" | "external";
   }
 }
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
-  trustHost: true,
-  providers: [
+providers.push(
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
@@ -73,9 +130,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        const user = await db.query.users.findFirst({
-          where: eq(users.email, credentials.email as string),
-        });
+        const user = await findUserByEmail(credentials.email as string);
 
         if (!user || !user.password) {
           return null;
@@ -101,18 +156,62 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           teamId: user.teamId,
           globalRole: user.globalRole,
           legacyRole,
+          userType: (user.userType as "internal" | "external") ?? "external",
         };
       },
     }),
-  ],
+);
+
+if (googleSsoEnabled()) {
+  providers.push(
+    Google({
+      clientId: process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET,
+      // Always show the account chooser so students can pick Gmail vs. work account.
+      authorization: { params: { prompt: "select_account" } },
+    }),
+  );
+}
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
+  providers,
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ account, profile }) {
+      if (account?.provider !== "google") return true;
+      const email = profile?.email;
+      // Only accept Google-verified addresses (prevents account takeover via unverified emails).
+      if (!email || profile?.email_verified === false) return "/login?error=GoogleEmailUnverified";
+      await upsertGoogleUser({
+        email,
+        name: profile?.name ?? null,
+        picture: (profile as { picture?: string } | undefined)?.picture ?? null,
+      });
+      return true;
+    },
+    async jwt({ token, user, account, profile }) {
+      if (account?.provider === "google" && profile?.email) {
+        // Map the Google identity onto our own users row.
+        const dbUser = await findUserByEmail(profile.email);
+        if (dbUser) {
+          token.id = dbUser.id;
+          token.role = dbUser.role;
+          token.teamId = dbUser.teamId;
+          token.globalRole = dbUser.globalRole;
+          token.legacyRole = await computeLegacyRole(dbUser.id);
+          token.userType = dbUser.userType;
+          token.name = dbUser.name;
+          token.picture = dbUser.image;
+        }
+        return token;
+      }
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.teamId = user.teamId;
         token.globalRole = user.globalRole;
         token.legacyRole = user.legacyRole ?? null;
+        token.userType = user.userType ?? "external";
       }
       return token;
     },
@@ -123,6 +222,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.teamId = token.teamId as string | null;
         session.user.globalRole = (token.globalRole as string) || "user";
         session.user.legacyRole = (token.legacyRole as LegacyRole) ?? null;
+        session.user.userType = (token.userType as "internal" | "external") ?? "external";
       }
       return session;
     },

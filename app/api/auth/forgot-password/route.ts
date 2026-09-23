@@ -6,6 +6,11 @@ import {
 } from "@/lib/auth/password-reset";
 import { sendMail } from "@/lib/notifications/email";
 import { passwordResetTemplate } from "@/lib/notifications/templates";
+import { platformBaseUrl } from "@/lib/urls";
+import { resolveHostToSlug } from "@/lib/tenant-resolver";
+import { db } from "@/lib/db";
+import { contests } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 /**
  * POST /api/auth/forgot-password
@@ -51,13 +56,19 @@ export async function POST(req: NextRequest) {
       return generic;
     }
 
-    const baseUrl =
-      process.env.NEXTAUTH_URL?.replace(/\/$/, "") ?? `${req.nextUrl.origin}`;
+    // Send the link back to the host the user is on (custom contest domains
+    // have their own login), falling back to the platform canonical host.
+    const fwdHost = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    const hostSlug = await resolveHostToSlug(fwdHost);
+    const baseUrl = hostSlug && fwdHost ? `https://${fwdHost.split(",")[0].trim()}` : platformBaseUrl(req.nextUrl.origin);
     const actionUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(issued.raw)}`;
+    const hostContest = hostSlug
+      ? await db.query.contests.findFirst({ where: eq(contests.slug, hostSlug), columns: { name: true } })
+      : null;
 
     const tpl = passwordResetTemplate({
       recipientName: issued.userName,
-      contestName: "TeamLease EdTech Hackathon",
+      contestName: hostContest?.name ?? process.env.PLATFORM_NAME ?? "TeamLease EdTech Innovation Hub",
       actionUrl,
       expiresInMinutes: TOKEN_TTL_MINUTES,
       supportEmail: process.env.SUPPORT_EMAIL ?? null,

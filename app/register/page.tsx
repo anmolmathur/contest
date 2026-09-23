@@ -6,24 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import Link from "next/link";
 import { motion } from "framer-motion";
-
-const roles = [
-  "Developer",
-  "Technical Lead",
-  "Product Owner",
-  "Business SPOC",
-  "QA",
-  "Intern",
-];
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -32,7 +17,6 @@ export default function RegisterPage() {
     email: "",
     password: "",
     confirmPassword: "",
-    role: "",
     department: "",
   });
   const [error, setError] = useState("");
@@ -47,8 +31,8 @@ export default function RegisterPage() {
       return;
     }
 
-    if (!formData.role) {
-      setError("Please select a role");
+    if (formData.password.length < 8) {
+      setError("Password must be at least 8 characters");
       return;
     }
 
@@ -62,7 +46,6 @@ export default function RegisterPage() {
           name: formData.name,
           email: formData.email,
           password: formData.password,
-          role: formData.role,
           department: formData.department,
         }),
       });
@@ -74,7 +57,8 @@ export default function RegisterPage() {
         return;
       }
 
-      router.push("/login?registered=true");
+      const cb = new URLSearchParams(window.location.search).get("callbackUrl");
+      router.push(`/login?registered=true${cb ? `&callbackUrl=${encodeURIComponent(cb)}` : ""}`);
     } catch (error) {
       setError("An error occurred. Please try again.");
     } finally {
@@ -109,6 +93,8 @@ export default function RegisterPage() {
             </h1>
             <p className="text-gray-400">Create your account to get started</p>
           </div>
+
+          <GoogleSignInButton label="Sign up with Google" />
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
@@ -146,36 +132,13 @@ export default function RegisterPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="role" className="text-gray-200">
-                Role
-              </Label>
-              <Select
-                value={formData.role}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, role: value })
-                }
-              >
-                <SelectTrigger className="bg-white/5 border-white/10 text-white focus:border-neon-purple focus:ring-neon-purple">
-                  <SelectValue placeholder="Select your role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role} value={role}>
-                      {role}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="department" className="text-gray-200">
-                Department
+                College / Organisation <span className="text-gray-500">(optional)</span>
               </Label>
               <Input
                 id="department"
                 type="text"
-                placeholder="Engineering"
+                placeholder="e.g. IIM Sambalpur, TeamLease EdTech"
                 value={formData.department}
                 onChange={(e) =>
                   setFormData({ ...formData, department: e.target.value })

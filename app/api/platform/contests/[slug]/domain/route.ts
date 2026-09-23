@@ -54,8 +54,8 @@ export async function POST(
     ok: true,
     domain: normalized,
     instructions: {
-      cname: process.env.PLATFORM_CANONICAL_HOST ?? "hackathon.teamleaseedtech.com",
-      verifyUrl: `/.well-known/contest-verify?host=${normalized}`,
+      cname: process.env.PLATFORM_CANONICAL_HOST ?? req.headers.get("host") ?? "",
+      verifyUrl: `https://${normalized}/.well-known/contest-verify`,
     },
   });
 }

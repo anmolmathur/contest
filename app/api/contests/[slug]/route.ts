@@ -70,7 +70,16 @@ export async function PUT(
       "scoringCriteria", "phaseConfig", "prizes", "roleConfig",
       "maxTeams", "maxApprovedTeams", "maxTeamMembers",
       "startDate", "endDate", "registrationDeadline",
+      "contestType", "submissionFields", "scoringScale", "terminology", "settings",
+      "agenda", "speakers", "faqConfig", "brandingConfig", "supportEmail", "visibility",
     ];
+
+    if (body.contestType !== undefined && !["hackathon", "business_symposium"].includes(body.contestType)) {
+      return NextResponse.json({ error: "Invalid contestType" }, { status: 400 });
+    }
+    if (body.visibility !== undefined && !["public", "unlisted", "private"].includes(body.visibility)) {
+      return NextResponse.json({ error: "Invalid visibility" }, { status: 400 });
+    }
 
     for (const field of allowedFields) {
       if (body[field] !== undefined) {

@@ -87,6 +87,26 @@ export const contests = pgTable("contests", {
   // Array of {role, maxPerTeam}
   roleConfig: jsonb("role_config"),
 
+  // ---- Contest type (hackathon | business_symposium) and generic engine config ----
+  // Preset registry lives in lib/contest-types.ts. The type selects defaults and
+  // vocabulary; everything below can still be edited per contest.
+  contestType: varchar("contest_type", { length: 30 }).default("hackathon").notNull(),
+  // Array of {key, label, type, required, placeholder?, helpText?, phases?, accept?, maxSizeMb?, options?}
+  // See lib/submission-fields.ts. Null = legacy hackathon fields.
+  submissionFields: jsonb("submission_fields"),
+  // {min, max, step, labels: [{min, max, label}]}. Null = 0-100.
+  scoringScale: jsonb("scoring_scale"),
+  // {track, team, phase, judge, submission, member} display-name overrides
+  terminology: jsonb("terminology"),
+  // {exclusiveTracks, feedbackVisibility, showcaseEnabled, resultsPublished, allowedEmailDomains, ...}
+  settings: jsonb("settings"),
+  // Array of {id, day, start, end, title, kind, speakerIds[], venue, description}
+  agenda: jsonb("agenda"),
+  // Array of {id, name, title, org, bio, photoUrl, roles[]}
+  speakers: jsonb("speakers"),
+  // Live on-stage finale state: {phase, currentTeamId, scoringOpen, queue[], timerEndsAt, revealStage}
+  liveState: jsonb("live_state"),
+
   maxTeams: integer("max_teams").default(50).notNull(),
   maxApprovedTeams: integer("max_approved_teams").default(10).notNull(),
   maxTeamMembers: integer("max_team_members").default(7).notNull(),
@@ -130,10 +150,13 @@ export const users = pgTable("users", {
   emailVerified: timestamp("email_verified", { mode: "date" }),
   image: text("image"),
   password: text("password"),
-  role: roleEnum("role"), // kept for backward compat
+  role: roleEnum("role"), // kept for backward compat (nullable; no longer required at signup)
   department: varchar("department", { length: 255 }),
   teamId: uuid("team_id"), // kept for backward compat
   globalRole: varchar("global_role", { length: 50 }).default("user").notNull(), // 'platform_admin' or 'user'
+  // 'internal' = TeamLease employee (email on an internal domain, see lib/user-type.ts),
+  // 'external' = student / outside participant. Derived at signup + every Google login.
+  userType: varchar("user_type", { length: 20 }).default("external").notNull(),
   // Notification preferences per channel per event type
   // { email: { teamInvite: bool, phaseStarted: bool, ... }, inApp: { ... } }
   notificationPrefs: jsonb("notification_prefs"),
@@ -160,12 +183,17 @@ export const submissions = pgTable("submissions", {
   id: uuid("id").defaultRandom().primaryKey(),
   teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
   phase: integer("phase").notNull(),
-  githubUrl: varchar("github_url", { length: 255 }).notNull(),
-  demoUrl: varchar("demo_url", { length: 255 }).notNull(),
+  // Legacy hackathon columns — nullable since 0008. New code reads/writes
+  // `fields` (keyed by contests.submissionFields[].key); hackathon contests
+  // still mirror into these columns for older exports.
+  githubUrl: varchar("github_url", { length: 255 }),
+  demoUrl: varchar("demo_url", { length: 255 }),
   submissionDescription: text("submission_description"),
-  aiPromptsUsed: text("ai_prompts_used").notNull(),
-  aiToolsUtilized: text("ai_tools_utilized").notNull(),
-  aiScreenshots: text("ai_screenshots").array().notNull(),
+  aiPromptsUsed: text("ai_prompts_used"),
+  aiToolsUtilized: text("ai_tools_utilized"),
+  aiScreenshots: text("ai_screenshots").array(),
+  // Generic submission values: Record<fieldKey, string | string[]>
+  fields: jsonb("fields"),
   submittedAt: timestamp("submitted_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
@@ -185,6 +213,10 @@ export const scores = pgTable("scores", {
   executionScore: integer("execution_score"),
   // Dynamic scoring for new contests with variable criteria
   criteriaScores: jsonb("criteria_scores"), // e.g. {"aiUtilization": 80, "presentationCommunication": 75}
+  // Jury comments shown to the team once results are published
+  feedback: text("feedback"),
+  // Jury-only note, never shown to teams
+  privateNote: text("private_note"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
@@ -201,7 +233,7 @@ export const certificateTemplates = pgTable("certificate_templates", {
   // Text customizations
   titleText: varchar("title_text", { length: 255 }).default("Certificate of Achievement").notNull(),
   subtitleText: varchar("subtitle_text", { length: 500 }).default("This certificate is awarded to").notNull(),
-  eventName: varchar("event_name", { length: 255 }).default("AI Vibe Coding Challenge 2024").notNull(),
+  eventName: varchar("event_name", { length: 255 }).default("Innovation Challenge").notNull(),
   footerText: text("footer_text"),
   signatureName: varchar("signature_name", { length: 255 }),
   signatureTitle: varchar("signature_title", { length: 255 }),
@@ -255,7 +287,7 @@ export const mediaAssets = pgTable("media_assets", {
   ownerUserId: uuid("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   contestId: uuid("contest_id").references(() => contests.id, { onDelete: "cascade" }),
   teamId: uuid("team_id").references(() => teams.id, { onDelete: "set null" }),
-  kind: varchar("kind", { length: 64 }).notNull(), // 'pitch_video' | 'pitch_image' | 'banner' | 'certificate_logo' | 'submission_screenshot'
+  kind: varchar("kind", { length: 64 }).notNull(), // 'pitch_video' | 'pitch_image' | 'banner' | 'certificate_logo' | 'submission_screenshot' | 'submission_file' | 'speaker_photo'
   bucket: varchar("bucket", { length: 255 }),
   objectKey: varchar("object_key", { length: 500 }),
   url: varchar("url", { length: 1000 }).notNull(),

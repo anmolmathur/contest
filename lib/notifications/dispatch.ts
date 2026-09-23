@@ -11,6 +11,7 @@
  */
 
 import { db } from "@/lib/db";
+import { contestUrl } from "@/lib/urls";
 import {
   notifications,
   users,
@@ -86,9 +87,7 @@ async function resolveContestCtx(contestId: string) {
     id: contest.id,
     name: contest.name,
     supportEmail: contest.supportEmail ?? null,
-    actionUrl: contest.customDomain
-      ? `https://${contest.customDomain}/dashboard`
-      : `/c/${contest.slug}/dashboard`,
+    actionUrl: contestUrl(contest, "/dashboard"),
   };
 }
 

@@ -4,26 +4,25 @@ import { db } from "@/lib/db";
 import { contests } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { isPlatformAdmin } from "@/lib/contest-auth";
-import {
-  DEFAULT_SCORING_CRITERIA,
-  DEFAULT_PHASE_CONFIG,
-  DEFAULT_PRIZES,
-  DEFAULT_ROLE_CONFIG,
-  DEFAULT_MAX_TEAMS,
-  DEFAULT_MAX_APPROVED_TEAMS,
-  DEFAULT_MAX_TEAM_MEMBERS,
-} from "@/lib/constants";
+import { createContestFromPreset } from "@/lib/contest-create";
+import { resolveHostToSlug } from "@/lib/tenant-resolver";
 
 // GET /api/contests - List all contests (public)
-export async function GET() {
+// On a custom contest domain only that contest is listed, so a third party
+// on their own domain never sees the other tenants.
+export async function GET(req: NextRequest) {
   try {
+    const hostSlug = await resolveHostToSlug(req.headers.get("x-forwarded-host") ?? req.headers.get("host"));
     const allContests = await db.query.contests.findMany({
+      where: hostSlug ? eq(contests.slug, hostSlug) : undefined,
       columns: {
         id: true,
         name: true,
         slug: true,
         description: true,
         status: true,
+        contestType: true,
+        visibility: true,
         heroTitle: true,
         heroSubtitle: true,
         bannerImageUrl: true,
@@ -80,31 +79,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "A contest with this slug already exists" }, { status: 409 });
     }
 
-    const [newContest] = await db.insert(contests).values({
+    const newContest = await createContestFromPreset({
+      type: body.contestType ?? "hackathon",
       name,
       slug,
-      description: description || null,
-      status: status || "draft",
       createdBy: session.user.id,
-      heroTitle: body.heroTitle || name,
-      heroSubtitle: body.heroSubtitle || description || "",
-      heroCtaText: body.heroCtaText || "Register Now",
-      bannerImageUrl: body.bannerImageUrl || null,
-      rulesContent: body.rulesContent || null,
-      eligibilityRules: body.eligibilityRules || null,
-      teamStructureRules: body.teamStructureRules || null,
-      deliverableRules: body.deliverableRules || null,
-      scoringCriteria: body.scoringCriteria || DEFAULT_SCORING_CRITERIA,
-      phaseConfig: body.phaseConfig || DEFAULT_PHASE_CONFIG,
-      prizes: body.prizes || DEFAULT_PRIZES,
-      roleConfig: body.roleConfig || DEFAULT_ROLE_CONFIG,
-      maxTeams: body.maxTeams || DEFAULT_MAX_TEAMS,
-      maxApprovedTeams: body.maxApprovedTeams || DEFAULT_MAX_APPROVED_TEAMS,
-      maxTeamMembers: body.maxTeamMembers || DEFAULT_MAX_TEAM_MEMBERS,
-      startDate: body.startDate ? new Date(body.startDate) : null,
-      endDate: body.endDate ? new Date(body.endDate) : null,
-      registrationDeadline: body.registrationDeadline ? new Date(body.registrationDeadline) : null,
-    }).returning();
+      overrides: {
+        description: description || null,
+        status: status || "draft",
+        heroTitle: body.heroTitle || name,
+        heroSubtitle: body.heroSubtitle || undefined,
+        heroCtaText: body.heroCtaText || undefined,
+        bannerImageUrl: body.bannerImageUrl || null,
+        rulesContent: body.rulesContent || null,
+        eligibilityRules: body.eligibilityRules || undefined,
+        teamStructureRules: body.teamStructureRules || undefined,
+        deliverableRules: body.deliverableRules || undefined,
+        scoringCriteria: body.scoringCriteria,
+        phaseConfig: body.phaseConfig,
+        prizes: body.prizes,
+        roleConfig: body.roleConfig,
+        submissionFields: body.submissionFields,
+        scoringScale: body.scoringScale,
+        terminology: body.terminology,
+        settings: body.settings,
+        agenda: body.agenda,
+        speakers: body.speakers,
+        faqConfig: body.faqConfig,
+        maxTeams: body.maxTeams || undefined,
+        maxApprovedTeams: body.maxApprovedTeams || undefined,
+        maxTeamMembers: body.maxTeamMembers || undefined,
+        startDate: body.startDate ? new Date(body.startDate) : null,
+        endDate: body.endDate ? new Date(body.endDate) : null,
+        registrationDeadline: body.registrationDeadline ? new Date(body.registrationDeadline) : null,
+        tracks: Array.isArray(body.tracks) ? body.tracks : undefined,
+      },
+    });
 
     return NextResponse.json(newContest, { status: 201 });
   } catch (error) {

@@ -83,8 +83,7 @@ export async function getUserContestRole(userId: string, contestId: string): Pro
 
 /**
  * Check if user is a platform admin (global role).
- * Platform admin = access to /platform/admin console + ability to inspect any contest.
- * It does NOT by itself grant judge/admin rights inside any specific contest.
+ * Platform admin = /platform/admin console + full admin access to every contest.
  */
 export async function isPlatformAdmin(userId: string): Promise<boolean> {
   const user = await db.query.users.findFirst({
@@ -98,28 +97,30 @@ export async function isPlatformAdmin(userId: string): Promise<boolean> {
 /**
  * Core RBAC resolver. Returns the effective role a user has in a contest.
  *
- * A platform admin who is NOT listed in contest_users for this contest gets
- * `access: "inspect"` — they can see dashboards and data but cannot mutate.
- * To take action (judge, admin), they must be explicitly added.
+ * Platform admins can access and administer ALL contests: a platform admin
+ * gets `access: "admin"` everywhere (source `platform_override` when they
+ * have no contest_users row). If they also hold a row, its team/participant
+ * info is preserved but access is still elevated to admin.
  */
 export async function getEffectiveContestRole(
   userId: string,
   contestId: string,
 ): Promise<EffectiveContestRole> {
   const contestUser = await getContestUser(userId, contestId);
+  const platformAdmin = await isPlatformAdmin(userId);
+
   if (contestUser) {
     return {
-      access: contestUser.role as ContestRole,
+      access: platformAdmin ? "admin" : (contestUser.role as ContestRole),
       source: "contest_users",
       participantRole: contestUser.participantRole ?? null,
       teamId: contestUser.teamId ?? null,
     };
   }
 
-  const platformAdmin = await isPlatformAdmin(userId);
   if (platformAdmin) {
     return {
-      access: "inspect",
+      access: "admin",
       source: "platform_override",
       participantRole: null,
       teamId: null,
@@ -130,21 +131,19 @@ export async function getEffectiveContestRole(
 }
 
 /**
- * True iff user can administer the contest (mutating admin actions).
- * Platform-admin alone does NOT satisfy this — must be explicitly added.
+ * True iff user can administer the contest (contest admin or platform admin).
  */
 export async function isContestAdmin(userId: string, contestId: string): Promise<boolean> {
   const eff = await getEffectiveContestRole(userId, contestId);
-  return eff.source === "contest_users" && eff.access === "admin";
+  return eff.access === "admin";
 }
 
 /**
- * True iff user can judge this contest (mutating judge actions: submit scores).
- * Platform-admin alone does NOT satisfy this.
+ * True iff user can judge this contest (judge, contest admin or platform admin).
  */
 export async function isContestJudge(userId: string, contestId: string): Promise<boolean> {
   const eff = await getEffectiveContestRole(userId, contestId);
-  return eff.source === "contest_users" && (eff.access === "judge" || eff.access === "admin");
+  return eff.access === "judge" || eff.access === "admin";
 }
 
 /**
@@ -210,7 +209,7 @@ export async function canAdminContest(
 
 /**
  * True iff the caller is allowed to MUTATE contest data as a judge (or admin).
- * Platform-admin alone is NOT enough. See `canAdminContest` re: `_userEmail`.
+ * Platform admins qualify (they administer every contest). See `canAdminContest` re: `_userEmail`.
  */
 export async function canJudgeContest(
   userId: string,

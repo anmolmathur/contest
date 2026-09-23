@@ -1,6 +1,22 @@
 "use client";
 
 import { createContext, useContext, ReactNode } from "react";
+import {
+  term as termOf,
+  termPlural as termPluralOf,
+  resolveScale,
+  resolveSettings,
+  type AgendaItem,
+  type ContestSettings,
+  type ContestType,
+  type ScoringScale,
+  type Speaker,
+  type SubmissionField,
+  type TermKey,
+  type Terminology,
+} from "@/lib/contest-config";
+import { resolveSubmissionFields } from "@/lib/submission-fields";
+import { getPreset, type LandingCopy } from "@/lib/contest-types";
 
 export interface ContestTrack {
   id: string;
@@ -65,6 +81,15 @@ export interface Contest {
   endDate: string | null;
   registrationDeadline: string | null;
   tracks: ContestTrack[];
+  contestType: ContestType;
+  submissionFields: SubmissionField[] | null;
+  scoringScale: ScoringScale | null;
+  terminology: Terminology | null;
+  settings: ContestSettings | null;
+  agenda: AgendaItem[] | null;
+  speakers: Speaker[] | null;
+  faqConfig: Array<{ question: string; answer: string }> | null;
+  customDomain: string | null;
 }
 
 interface ContestContextType {
@@ -93,4 +118,26 @@ export function useContest() {
     throw new Error("useContest must be used within a ContestProvider");
   }
   return context;
+}
+
+/**
+ * Resolved, never-null view of the generic engine config for the current
+ * contest: vocabulary helpers, submission fields, scale, settings, landing copy.
+ */
+export function useContestConfig() {
+  const { contest } = useContest();
+  const preset = getPreset(contest.contestType);
+  const terminology = contest.terminology ?? preset.terminology;
+  return {
+    contestType: contest.contestType,
+    isSymposium: contest.contestType === "business_symposium",
+    submissionFields: resolveSubmissionFields(contest.submissionFields),
+    scale: resolveScale(contest.scoringScale),
+    settings: resolveSettings(contest.settings),
+    terminology,
+    t: (key: TermKey) => termOf(terminology, key),
+    tp: (key: TermKey) => termPluralOf(terminology, key),
+    landing: preset.landing as LandingCopy,
+    preset,
+  };
 }

@@ -42,7 +42,13 @@ const MAX_BY_KIND: Record<string, number> = {
   banner: 10 * 1024 * 1024,
   certificate_logo: 5 * 1024 * 1024,
   submission_screenshot: 10 * 1024 * 1024,
+  submission_file: 25 * 1024 * 1024,
+  speaker_photo: 5 * 1024 * 1024,
 };
+
+// Documents teams hand in: decks, reports, financial models.
+const DOCUMENT_MIME =
+  /^(application\/pdf|application\/vnd\.ms-powerpoint|application\/vnd\.openxmlformats-officedocument\.(presentationml|wordprocessingml|spreadsheetml)\.[a-z.]+|application\/msword|application\/vnd\.ms-excel|text\/csv|image\/.+)$/;
 
 function assertAllowed(input: PresignInput): void {
   const max = MAX_BY_KIND[input.kind] ?? 10 * 1024 * 1024;
@@ -55,6 +61,8 @@ function assertAllowed(input: PresignInput): void {
     banner: /^image\//,
     certificate_logo: /^image\//,
     submission_screenshot: /^image\//,
+    submission_file: DOCUMENT_MIME,
+    speaker_photo: /^image\//,
   };
   const pattern = allowed[input.kind];
   if (pattern && !pattern.test(input.mimeType)) {

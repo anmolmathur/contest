@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,14 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+
+const AUTH_ERRORS: Record<string, string> = {
+  GoogleEmailUnverified: "Your Google account email isn't verified. Please verify it with Google or use email sign-in.",
+  OAuthAccountNotLinked: "This email is already linked to another sign-in method.",
+  AccessDenied: "Sign-in was cancelled or denied.",
+  Configuration: "Sign-in is temporarily unavailable. Please try again or use email and password.",
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,6 +24,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (err) setError(AUTH_ERRORS[err] ?? "Sign-in failed. Please try again.");
+    if (params.get("registered")) setNotice("Account created — sign in to continue.");
+    if (params.get("reset")) setNotice("Password updated — sign in with your new password.");
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,23 +58,11 @@ export default function LoginPage() {
           return;
         }
 
-        // Otherwise, find the active contest and go directly to its dashboard
-        try {
-          const res = await fetch("/api/contests");
-          if (res.ok) {
-            const contests = await res.json();
-            const active = contests.filter((c: { status: string }) => c.status === "active");
-            if (active.length === 1) {
-              router.push(`/c/${active[0].slug}/dashboard`);
-              router.refresh();
-              return;
-            }
-          }
-        } catch {
-          // fallback to homepage if fetch fails
-        }
-        router.push("/");
+        // Otherwise let the server pick the right contest (custom domain,
+        // single enrolment, or single active contest).
+        router.push("/post-login");
         router.refresh();
+        return;
       }
     } catch (error) {
       setError("An error occurred. Please try again.");
@@ -93,6 +98,14 @@ export default function LoginPage() {
             </h1>
             <p className="text-gray-400">Sign in to continue to the challenge</p>
           </div>
+
+          {notice && (
+            <div className="mb-5 rounded-lg border border-green-500/20 bg-green-500/10 p-3 text-sm text-green-300">
+              {notice}
+            </div>
+          )}
+
+          <GoogleSignInButton />
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
@@ -154,7 +167,7 @@ export default function LoginPage() {
           <div className="mt-6 text-center text-sm">
             <span className="text-gray-400">Don't have an account? </span>
             <Link
-              href="/register"
+              href={`/register${typeof window !== "undefined" ? window.location.search : ""}`}
               className="text-neon-purple hover:text-electric-blue transition-colors"
             >
               Register here

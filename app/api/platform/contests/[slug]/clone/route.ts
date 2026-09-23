@@ -97,6 +97,16 @@ export async function POST(
         phaseConfig,
         prizes: source.prizes,
         roleConfig: source.roleConfig,
+        contestType: source.contestType,
+        submissionFields: source.submissionFields,
+        scoringScale: source.scoringScale,
+        terminology: source.terminology,
+        // Execution flags (results published, live finale) never carry over.
+        settings: source.settings
+          ? { ...(source.settings as Record<string, unknown>), resultsPublished: false }
+          : null,
+        agenda: source.agenda,
+        speakers: source.speakers,
         brandingConfig: source.brandingConfig,
         featureFlags: source.featureFlags,
         faqConfig: source.faqConfig,

@@ -2,71 +2,83 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { resolveHostToSlug, customDomainsEnabled } from "@/lib/tenant-resolver";
 
+// Paths that are never rewritten onto a contest when served from a custom
+// domain: they are platform-level (auth, APIs, platform console, assets).
+const NO_REWRITE_PREFIXES = [
+  "/c/",
+  "/api/",
+  "/platform",
+  "/_next",
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/post-login",
+  "/.well-known",
+];
+
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/post-login",
+  "/api/auth",
+  "/api/contests", // public contest listing (GET)
+  "/api/tls-ask", // reverse-proxy verification hook (no auth)
+  "/.well-known/contest-verify", // custom domain ownership check
+];
+
+// Contest landing / rules / results / agenda / showcase / stage are public
+const CONTEST_PUBLIC = /^\/c\/[^/]+(\/rules|\/results|\/agenda|\/showcase|\/stage)?$/;
+const CONTEST_API_PUBLIC = /^\/api\/contests\/[^/]+$/;
+const TRACKS_API_PUBLIC = /^\/api\/c\/[^/]+\/tracks$/;
+const LEADERBOARD_PUBLIC = /^\/api\/c\/[^/]+\/leaderboard$/;
+const SHOWCASE_API_PUBLIC = /^\/api\/c\/[^/]+\/showcase$/;
+const LIVE_API_PUBLIC = /^\/api\/c\/[^/]+\/live$/; // stage view polls this (GET only)
+const ASSISTANT_PUBLIC = /^\/api\/c\/[^/]+\/assistant$/; // contestant Q&A works before login
+
+function isPublic(pathname: string, method: string): boolean {
+  if (pathname === "/") return true;
+  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return true;
+  if (CONTEST_PUBLIC.test(pathname)) return true;
+  if (method === "GET" && (CONTEST_API_PUBLIC.test(pathname) || TRACKS_API_PUBLIC.test(pathname))) return true;
+  if (method === "GET" && (LEADERBOARD_PUBLIC.test(pathname) || SHOWCASE_API_PUBLIC.test(pathname))) return true;
+  if (method === "GET" && LIVE_API_PUBLIC.test(pathname)) return true;
+  if (method === "POST" && ASSISTANT_PUBLIC.test(pathname)) return true;
+  if (pathname.startsWith("/api/uploads/local/")) return true; // served files (unguessable ids)
+  return false;
+}
+
 export default auth(async (req) => {
   const { pathname, search } = req.nextUrl;
   const isAuthenticated = !!req.auth;
 
-  // --- Custom domain tenant rewrite (Milestone 2) ---------------------------
-  // If the request host is a verified custom domain, transparently rewrite the
-  // URL so the app renders the right contest. Users see /dashboard, /rules,
-  // etc. at their branded domain — internally we route to /c/[slug]/...
+  // --- Custom domain: the whole app for one contest on its own host --------
+  // Requests on a verified custom domain are transparently rewritten to
+  // /c/[slug]/... so /, /dashboard, /rules etc. render that contest. Auth
+  // still applies to the rewritten path.
+  let effectivePath = pathname;
+  let rewriteTo: URL | null = null;
   if (customDomainsEnabled()) {
-    const host = req.headers.get("host");
+    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
     const slug = await resolveHostToSlug(host);
-    if (slug && !pathname.startsWith("/c/") && !pathname.startsWith("/api/") &&
-        !pathname.startsWith("/platform") && !pathname.startsWith("/_next") &&
-        !pathname.startsWith("/login") && !pathname.startsWith("/register") &&
-        !pathname.startsWith("/forgot-password") && !pathname.startsWith("/reset-password")) {
-      const rewritten = new URL(`/c/${slug}${pathname === "/" ? "" : pathname}${search ?? ""}`, req.url);
-      return NextResponse.rewrite(rewritten);
+    if (slug && !NO_REWRITE_PREFIXES.some((p) => pathname.startsWith(p))) {
+      effectivePath = `/c/${slug}${pathname === "/" ? "" : pathname}`;
+      rewriteTo = new URL(`${effectivePath}${search ?? ""}`, req.url);
     }
   }
 
-  // --- Public route allowlist ----------------------------------------------
-  const publicRoutes = [
-    "/",
-    "/login",
-    "/register",
-    "/forgot-password",
-    "/reset-password",
-    "/api/auth",
-    "/api/contests", // public contest listing
-    "/api/tls-ask",  // reverse-proxy verification hook (no auth)
-    "/.well-known/contest-verify", // custom domain ownership check
-  ];
-
-  const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
-
-  // Contest landing / rules / results are public
-  const contestPublicPattern = /^\/c\/[^/]+(\/rules|\/results)?$/;
-  const isContestPublicRoute = contestPublicPattern.test(pathname);
-
-  const contestApiPublicPattern = /^\/api\/contests\/[^/]+$/;
-  const isContestApiPublic = contestApiPublicPattern.test(pathname) && req.method === "GET";
-
-  const tracksApiPublicPattern = /^\/api\/c\/[^/]+\/tracks$/;
-  const isTracksApiPublic = tracksApiPublicPattern.test(pathname) && req.method === "GET";
-
-  // Public leaderboard for any contest
-  const publicLeaderboardPattern = /^\/api\/c\/[^/]+\/leaderboard$/;
-  const isPublicLeaderboard = publicLeaderboardPattern.test(pathname) && req.method === "GET";
-
-  if (
-    isPublicRoute ||
-    isContestPublicRoute ||
-    isContestApiPublic ||
-    isTracksApiPublic ||
-    isPublicLeaderboard
-  ) {
-    return NextResponse.next();
-  }
-
-  if (!isAuthenticated) {
+  if (!isPublic(effectivePath, req.method) && !isAuthenticated) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
+    loginUrl.searchParams.set("callbackUrl", `${pathname}${search ?? ""}`);
     return NextResponse.redirect(loginUrl);
   }
 
+  if (rewriteTo) return NextResponse.rewrite(rewriteTo);
   return NextResponse.next();
 });
 
