@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
 import { PLATFORM_THEME_SCOPE, themeCookieName, type ColorMode } from "@/lib/theme";
 
@@ -10,11 +10,8 @@ import { PLATFORM_THEME_SCOPE, themeCookieName, type ColorMode } from "@/lib/the
  * remembers the choice for this contest (cookie, 1 year).
  */
 export function ThemeToggle({ floating = false, className = "" }: { floating?: boolean; className?: string }) {
-  const [mode, setMode] = useState<ColorMode | null>(null);
-
-  useEffect(() => {
-    setMode(document.documentElement.dataset.theme === "light" ? "light" : "dark");
-  }, []);
+  // <html data-theme> is the source of truth (server-rendered, flipped below).
+  const mode = useSyncExternalStore(subscribeToTheme, readTheme, () => null);
 
   const toggle = () => {
     const html = document.documentElement;
@@ -23,7 +20,6 @@ export function ThemeToggle({ floating = false, className = "" }: { floating?: b
     html.style.colorScheme = next;
     const scope = html.dataset.themeScope || PLATFORM_THEME_SCOPE;
     document.cookie = `${themeCookieName(scope)}=${next}; path=/; max-age=31536000; samesite=lax`;
-    setMode(next);
   };
 
   const label = mode === "light" ? "Switch to dark mode" : "Switch to light mode";
@@ -42,4 +38,14 @@ export function ThemeToggle({ floating = false, className = "" }: { floating?: b
       {mode === "light" ? <Moon size={16} /> : <Sun size={16} />}
     </button>
   );
+}
+
+function readTheme(): ColorMode {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function subscribeToTheme(onChange: () => void): () => void {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
 }
