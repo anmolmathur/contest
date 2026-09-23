@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, submissions, contests, contestUsers } from "@/lib/db/schema";
+import { teams, submissions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canJudgeContest, getContestUser } from "@/lib/contest-auth";
+import { submissionValues } from "@/lib/submission-fields";
 
 // GET - Get all submissions for a team in this contest
 export async function GET(
@@ -60,7 +61,7 @@ export async function GET(
         scores: isJudge
           ? {
               with: {
-                judge: true,
+                judge: { columns: { id: true, name: true, email: true } },
               },
             }
           : undefined,
@@ -69,7 +70,9 @@ export async function GET(
     });
 
     return NextResponse.json(
-      { submissions: teamSubmissions },
+      {
+        submissions: teamSubmissions.map((s) => ({ ...s, values: submissionValues(s) })),
+      },
       { status: 200 }
     );
   } catch (error) {

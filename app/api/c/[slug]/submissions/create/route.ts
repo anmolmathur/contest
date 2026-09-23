@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, submissions, contests, contestUsers } from "@/lib/db/schema";
+import { teams, submissions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, getContestUser } from "@/lib/contest-auth";
+import {
+  resolveSubmissionFields,
+  validateSubmission,
+  legacyColumnsFrom,
+  submissionValues,
+} from "@/lib/submission-fields";
+import { scorablePhases } from "@/lib/scoring";
+import {
+  extractSubmissionInput,
+  parsePhase,
+  usesLegacySubmissionColumns,
+  contestTerm,
+} from "@/lib/api-input";
 
-interface PhaseConfigEntry {
-  phase: number;
-  name: string;
-  maxPoints: number;
-  startDate?: string;
-  endDate?: string;
-  description?: string;
-  details?: string[];
-  deliverables?: string[];
-}
-
+/**
+ * POST /api/c/[slug]/submissions/create
+ *
+ * Body: { phase: number, fields: Record<string, string | string[]> }
+ *   (legacy flat body `{ phase, githubUrl, demoUrl, ... }` is still accepted)
+ *
+ * Upserts the caller's team submission for that phase. Only phases with
+ * maxPoints > 0 accept submissions. Values are validated against the
+ * contest's `submissionFields` (legacy hackathon fields when unset).
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -33,12 +45,25 @@ export async function POST(
       return NextResponse.json({ error: "Contest not found" }, { status: 404 });
     }
 
+    if (contest.status === "completed" || contest.status === "archived") {
+      return NextResponse.json(
+        { error: "This contest is closed; submissions are no longer accepted" },
+        { status: 409 }
+      );
+    }
+
     // Get the user's contest membership
     const contestUser = await getContestUser(session.user.id, contest.id);
     if (!contestUser || !contestUser.teamId) {
       return NextResponse.json(
-        { error: "You must be in a team for this contest to submit" },
+        { error: `You must be in a ${contestTerm(contest, "team").toLowerCase()} for this contest to submit` },
         { status: 400 }
+      );
+    }
+    if (contestUser.role === "mentor") {
+      return NextResponse.json(
+        { error: "Mentors cannot submit on behalf of a team" },
+        { status: 403 }
       );
     }
 
@@ -57,48 +82,32 @@ export async function POST(
       );
     }
 
-    const body = await req.json();
-    const {
-      phase,
-      githubUrl,
-      demoUrl,
-      submissionDescription,
-      aiPromptsUsed,
-      aiToolsUtilized,
-      aiScreenshots,
-    } = body;
-
-    // Validate required fields
-    if (
-      !phase ||
-      !githubUrl ||
-      !demoUrl ||
-      !submissionDescription ||
-      !aiPromptsUsed ||
-      !aiToolsUtilized ||
-      !aiScreenshots ||
-      aiScreenshots.length === 0
-    ) {
-      return NextResponse.json(
-        { error: "All fields including AI evidence are required" },
-        { status: 400 }
-      );
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    // Validate phase against contest phaseConfig
-    const phaseConfig = (contest.phaseConfig as PhaseConfigEntry[]) || [];
-    const validPhases = phaseConfig
-      .filter((p) => p.maxPoints > 0)
-      .map((p) => p.phase);
+    const phase = parsePhase((body as Record<string, unknown>).phase);
+    const phaseWord = contestTerm(contest, "phase");
 
-    if (!validPhases.includes(phase)) {
+    // Validate phase against contest phaseConfig (only scorable phases accept submissions)
+    const validPhases = scorablePhases(contest.phaseConfig).map((p) => p.phase);
+    if (phase === null || !validPhases.includes(phase)) {
       return NextResponse.json(
         {
-          error: `Invalid phase. Valid submission phases for this contest: ${validPhases.join(", ")}`,
+          error: `Invalid ${phaseWord.toLowerCase()}. Valid submission ${phaseWord.toLowerCase()}s for this contest: ${validPhases.join(", ")}`,
         },
         { status: 400 }
       );
     }
+
+    const fieldDefs = resolveSubmissionFields(contest.submissionFields);
+    const result = validateSubmission(fieldDefs, extractSubmissionInput(body), phase);
+    if (result.error !== undefined) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    const values = result.values;
+    const legacy = usesLegacySubmissionColumns(contest) ? legacyColumnsFrom(values) : {};
 
     // Check if a submission already exists for this team and phase
     const existingSubmission = await db.query.submissions.findFirst({
@@ -109,48 +118,32 @@ export async function POST(
     });
 
     if (existingSubmission) {
-      // Update existing submission
       const [updatedSubmission] = await db
         .update(submissions)
-        .set({
-          githubUrl,
-          demoUrl,
-          submissionDescription,
-          aiPromptsUsed,
-          aiToolsUtilized,
-          aiScreenshots,
-          updatedAt: new Date(),
-        })
+        .set({ fields: values, ...legacy, updatedAt: new Date() })
         .where(eq(submissions.id, existingSubmission.id))
         .returning();
 
       return NextResponse.json(
         {
           message: "Submission updated successfully",
-          submission: updatedSubmission,
+          submission: { ...updatedSubmission, values: submissionValues(updatedSubmission) },
           updated: true,
         },
         { status: 200 }
       );
     }
 
-    // Create new submission
     const [newSubmission] = await db
       .insert(submissions)
-      .values({
-        teamId: team.id,
-        phase,
-        githubUrl,
-        demoUrl,
-        submissionDescription,
-        aiPromptsUsed,
-        aiToolsUtilized,
-        aiScreenshots,
-      })
+      .values({ teamId: team.id, phase, fields: values, ...legacy })
       .returning();
 
     return NextResponse.json(
-      { message: "Submission created successfully", submission: newSubmission },
+      {
+        message: "Submission created successfully",
+        submission: { ...newSubmission, values: submissionValues(newSubmission) },
+      },
       { status: 201 }
     );
   } catch (error) {

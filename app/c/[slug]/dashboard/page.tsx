@@ -1,14 +1,17 @@
 "use client";
 
-import { useContest } from "@/lib/contest-context";
+import { useContest, useContestConfig } from "@/lib/contest-context";
 import { useSession, signOut } from "next-auth/react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type ComponentProps } from "react";
 import { TeamMentorPanel } from "@/components/TeamMentorPanel";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import GlowButton from "@/components/GlowButton";
 import GlassCard from "@/components/GlassCard";
+import { DynamicSubmissionForm } from "@/components/submissions/DynamicSubmissionForm";
+import { SubmissionView } from "@/components/submissions/SubmissionView";
+import { submissionValues, validateSubmission } from "@/lib/submission-fields";
+import type { SubmissionValues } from "@/lib/contest-config";
 import Leaderboard from "@/components/Leaderboard";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import { Button } from "@/components/ui/button";
@@ -34,7 +37,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Users,
   Plus,
@@ -50,6 +52,7 @@ import {
   Crown,
   Shield,
   BookOpen,
+  MessageSquareQuote,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -74,26 +77,56 @@ interface TeamMember {
   role: string;
   department: string | null;
   participantRole?: string | null;
+  /** contest_users.role — "mentor" rows don't count toward team size */
+  contestRole?: string | null;
 }
 
-interface Submission {
+type Submission = {
   id: string;
   phase: number;
-  githubUrl: string;
-  demoUrl: string;
-  submissionDescription: string;
-  aiPromptsUsed: string;
-  aiToolsUtilized: string;
-  aiScreenshots: string[];
+  /** Generic values as stored (jsonb) */
+  fields?: SubmissionValues | null;
+  /** Merged values (fields + legacy hackathon columns), provided by the API */
+  values?: SubmissionValues;
+  // Legacy hackathon columns (still returned for old submissions)
+  githubUrl?: string | null;
+  demoUrl?: string | null;
+  submissionDescription?: string | null;
+  aiPromptsUsed?: string | null;
+  aiToolsUtilized?: string | null;
+  aiScreenshots?: string[] | null;
   submittedAt: string;
   updatedAt?: string;
+};
+
+interface SubmissionStatus {
+  judgesScored: number;
+  totalJudges: number;
+  isComplete: boolean;
 }
 
 interface ContestMembership {
   id: string;
-  role: string; // "admin" | "judge" | "participant"
+  role: string; // "admin" | "judge" | "participant" | "mentor"
   participantRole: string | null;
   teamId: string | null;
+}
+
+interface TeamFeedback {
+  visible: boolean;
+  phases: Array<{
+    phase: number;
+    name: string;
+    averageWeighted: number | null;
+    phasePoints: number | null;
+    feedback: Array<{ jury: string; text: string }>;
+  }>;
+}
+
+type LeaderboardEntries = ComponentProps<typeof Leaderboard>["entries"];
+
+function valuesOf(sub: Submission): SubmissionValues {
+  return sub.values ?? submissionValues(sub);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +135,7 @@ interface ContestMembership {
 
 export default function ContestDashboardPage() {
   const { contest } = useContest();
+  const { t, tp, submissionFields, settings } = useContestConfig();
   const { data: session, status } = useSession();
   const router = useRouter();
 
@@ -118,17 +152,21 @@ export default function ContestDashboardPage() {
   const [team, setTeam] = useState<Team | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamCount, setTeamCount] = useState(0);
-  const [approvedCount, setApprovedCount] = useState(0);
   const [maxTeams, setMaxTeams] = useState(contest.maxTeams);
+  // Tracks/categories already claimed (only populated with settings.exclusiveTracks)
+  const [takenTrackIds, setTakenTrackIds] = useState<string[]>([]);
 
   // Submissions
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [submissionStatuses, setSubmissionStatuses] = useState<
-    Record<string, any>
+    Record<string, SubmissionStatus | null>
   >({});
 
+  // Jury feedback for the user's team (only filled once results are visible)
+  const [teamFeedback, setTeamFeedback] = useState<TeamFeedback | null>(null);
+
   // Leaderboard
-  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntries>([]);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -148,9 +186,11 @@ export default function ContestDashboardPage() {
   // Create team form
   const [teamName, setTeamName] = useState("");
   const [selectedTrackId, setSelectedTrackId] = useState("");
+  const [createRole, setCreateRole] = useState("");
 
   // Edit profile form
   const [profileForm, setProfileForm] = useState({ name: "", department: "" });
+  const [profileRole, setProfileRole] = useState("");
 
   // Edit team form
   const [editTeamForm, setEditTeamForm] = useState({
@@ -158,16 +198,11 @@ export default function ContestDashboardPage() {
     trackId: "",
   });
 
-  // Submission form
-  const [submitForm, setSubmitForm] = useState({
-    phase: "",
-    githubUrl: "",
-    demoUrl: "",
-    submissionDescription: "",
-    aiPromptsUsed: "",
-    aiToolsUtilized: "",
-    aiScreenshots: [""],
-  });
+  // Submission form (fields come from the contest's submissionFields config)
+  const [submitPhase, setSubmitPhase] = useState("");
+  const [submitValues, setSubmitValues] = useState<SubmissionValues>({});
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [editingSubmission, setEditingSubmission] = useState<Submission | null>(
     null
   );
@@ -184,7 +219,18 @@ export default function ContestDashboardPage() {
     contestMembership?.role === "judge" ||
     contestMembership?.role === "admin";
   const isAdmin = contestMembership?.role === "admin";
+  const isParticipant = contestMembership?.role === "participant";
   const isCreator = team?.createdBy === session?.user?.id;
+
+  // Team roles the contest defines (e.g. Team Lead, Finance, Presenter)
+  const roleOptions = (contest.roleConfig ?? []).filter((r) => r.role && r.role.trim());
+  const hasTracks = contest.tracks.length > 0;
+  const sortedTracks = [...contest.tracks].sort((a, b) => a.sortOrder - b.sortOrder);
+  const trackWord = t("track");
+  const phaseWord = t("phase");
+  const judgesWord = tp("judge").toLowerCase();
+  // "Submit Work" for hackathons, "Submit Entry" when the contest renames submissions.
+  const submitNoun = /^submission$/i.test(t("submission")) ? "Work" : t("submission");
 
   // Phases that accept submissions (maxPoints > 0)
   const scorablePhases = (contest.phaseConfig ?? []).filter(
@@ -195,8 +241,8 @@ export default function ContestDashboardPage() {
   const getTrackName = useCallback(
     (trackId?: string | null) => {
       if (!trackId) return "N/A";
-      const t = contest.tracks.find((tr) => tr.id === trackId);
-      return t ? t.name : trackId;
+      const tr = contest.tracks.find((x) => x.id === trackId);
+      return tr ? tr.name : trackId;
     },
     [contest.tracks]
   );
@@ -216,6 +262,7 @@ export default function ContestDashboardPage() {
       const res = await fetch(`${apiBase}/users/me`);
       if (res.ok) {
         const data = await res.json();
+        setTakenTrackIds(Array.isArray(data.takenTrackIds) ? data.takenTrackIds : []);
         setContestMembership({
           id: data.id,
           role: data.role,
@@ -250,9 +297,15 @@ export default function ContestDashboardPage() {
       const res = await fetch(`${apiBase}/users`);
       if (res.ok) {
         const usersData = await res.json();
-        const me = (Array.isArray(usersData) ? usersData : []).find(
-          (u: any) => u.userId === session.user.id
-        );
+        const me = (
+          (Array.isArray(usersData) ? usersData : []) as Array<{
+            id: string;
+            userId: string;
+            role: string;
+            participantRole?: string | null;
+            teamId?: string | null;
+          }>
+        ).find((u) => u.userId === session.user.id);
         if (me) {
           setContestMembership({
             id: me.id,
@@ -286,7 +339,6 @@ export default function ContestDashboardPage() {
       if (res.ok) {
         const data = await res.json();
         setTeamCount(data.count);
-        setApprovedCount(data.approvedCount || 0);
         if (data.maxTeams) setMaxTeams(data.maxTeams);
       }
     } catch (err) {
@@ -333,34 +385,27 @@ export default function ContestDashboardPage() {
           const data = await res.json();
           setSubmissions(data.submissions || []);
 
-          // Load scoring statuses for each submission
+          // Load scoring progress for each submission (count only — scores
+          // and feedback stay hidden until results are published).
           const statusPromises = (data.submissions || []).map(
-            async (sub: Submission) => {
+            async (sub: Submission): Promise<[string, SubmissionStatus | null]> => {
               try {
                 const statusRes = await fetch(
                   `${apiBase}/submissions/${sub.id}`
                 );
                 if (statusRes.ok) {
                   const statusData = await statusRes.json();
-                  // Calculate scoring status from scores array
-                  const scores = statusData.submission?.scores || [];
-                  const judgesScored = scores.length;
-                  const totalJudges = 3; // fallback
-                  const avgScore =
-                    judgesScored > 0
-                      ? scores.reduce(
-                          (sum: number, s: any) =>
-                            sum + (s.totalScore || 0),
-                          0
-                        ) / judgesScored
-                      : 0;
+                  const judgesScored: number =
+                    statusData.submission?.scoresCount ??
+                    (statusData.submission?.scores || []).length;
+                  const totalJudges: number =
+                    statusData.submission?.totalJudges || 1;
                   return [
                     sub.id,
                     {
                       judgesScored,
                       totalJudges,
                       isComplete: judgesScored >= totalJudges,
-                      averageScore: avgScore,
                     },
                   ];
                 }
@@ -376,6 +421,22 @@ export default function ContestDashboardPage() {
         }
       } catch (err) {
         console.error("Error loading submissions:", err);
+      }
+    },
+    [apiBase]
+  );
+
+  const loadFeedback = useCallback(
+    async (teamId: string) => {
+      try {
+        const res = await fetch(`${apiBase}/teams/${teamId}/feedback`);
+        if (res.ok) {
+          setTeamFeedback(await res.json());
+        } else {
+          setTeamFeedback(null);
+        }
+      } catch {
+        setTeamFeedback(null);
       }
     },
     [apiBase]
@@ -416,7 +477,11 @@ export default function ContestDashboardPage() {
 
       const teamId = contestMembership?.teamId;
       if (teamId) {
-        await Promise.all([loadTeamData(teamId), loadSubmissions(teamId)]);
+        await Promise.all([
+          loadTeamData(teamId),
+          loadSubmissions(teamId),
+          loadFeedback(teamId),
+        ]);
       }
 
       setLoading(false);
@@ -430,6 +495,7 @@ export default function ContestDashboardPage() {
     loadLeaderboard,
     loadTeamData,
     loadSubmissions,
+    loadFeedback,
   ]);
 
   // -----------------------------------------------------------------------
@@ -452,28 +518,51 @@ export default function ContestDashboardPage() {
     setError("");
     setSuccess("");
 
-    if (!teamName || !selectedTrackId) {
-      setError("Please fill in all fields");
+    if (!teamName.trim() || (hasTracks && !selectedTrackId)) {
+      setError(
+        hasTracks
+          ? `Please enter a ${t("team").toLowerCase()} name and choose a ${trackWord.toLowerCase()}`
+          : `Please enter a ${t("team").toLowerCase()} name`
+      );
       return;
     }
 
     try {
+      // Set the creator's team role first (validated against roleConfig).
+      if (
+        roleOptions.length > 0 &&
+        createRole &&
+        createRole !== (contestMembership?.participantRole ?? "")
+      ) {
+        const ok = await saveParticipantRole(createRole);
+        if (!ok) return;
+      }
+
       const res = await fetch(`${apiBase}/teams/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: teamName, trackId: selectedTrackId }),
+        body: JSON.stringify({
+          name: teamName.trim(),
+          trackId: hasTracks ? selectedTrackId : undefined,
+        }),
       });
 
       const data = await res.json();
       if (!res.ok) {
         setError(data.error);
+        // Someone else may have just claimed that track — refresh availability.
+        if (data.code === "TRACK_TAKEN") {
+          setSelectedTrackId("");
+          await fetchMembership();
+        }
         return;
       }
 
-      setSuccess("Team created successfully!");
+      setSuccess(`${t("team")} created successfully!`);
       setCreateTeamOpen(false);
       setTeamName("");
       setSelectedTrackId("");
+      setCreateRole("");
 
       // Reload everything
       await loadDashboardData();
@@ -585,12 +674,18 @@ export default function ContestDashboardPage() {
       const res = await fetch(`${apiBase}/teams/${team.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editTeamForm),
+        body: JSON.stringify({
+          name: editTeamForm.name,
+          ...(hasTracks && editTeamForm.trackId
+            ? { trackId: editTeamForm.trackId }
+            : {}),
+        }),
       });
 
       const data = await res.json();
       if (!res.ok) {
         setError(data.error);
+        if (data.code === "TRACK_TAKEN") await fetchMembership();
         return;
       }
 
@@ -639,12 +734,36 @@ export default function ContestDashboardPage() {
   // Handlers — Profile
   // -----------------------------------------------------------------------
 
+  /** PUT users/me — returns true on success, sets the page error otherwise. */
+  const saveParticipantRole = async (role: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiBase}/users/me`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantRole: role || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to update your role");
+        return false;
+      }
+      setContestMembership((prev) =>
+        prev ? { ...prev, participantRole: data.participantRole ?? null } : prev
+      );
+      return true;
+    } catch {
+      setError("Failed to update your role");
+      return false;
+    }
+  };
+
   const handleOpenEditProfile = async () => {
     // Pre-load current profile data so existing values are visible
     setProfileForm({
       name: session?.user?.name || "",
       department: "",
     });
+    setProfileRole(contestMembership?.participantRole ?? "");
     setEditProfileOpen(true);
 
     try {
@@ -678,6 +797,16 @@ export default function ContestDashboardPage() {
         return;
       }
 
+      if (
+        isParticipant &&
+        roleOptions.length > 0 &&
+        profileRole !== (contestMembership?.participantRole ?? "")
+      ) {
+        const ok = await saveParticipantRole(profileRole);
+        if (!ok) return;
+        if (team) await loadTeamData(team.id);
+      }
+
       setSuccess("Profile updated successfully!");
       setEditProfileOpen(false);
       router.refresh();
@@ -691,15 +820,9 @@ export default function ContestDashboardPage() {
   // -----------------------------------------------------------------------
 
   const resetSubmitForm = () => {
-    setSubmitForm({
-      phase: "",
-      githubUrl: "",
-      demoUrl: "",
-      submissionDescription: "",
-      aiPromptsUsed: "",
-      aiToolsUtilized: "",
-      aiScreenshots: [""],
-    });
+    setSubmitPhase("");
+    setSubmitValues({});
+    setSubmitError("");
     setEditingSubmission(null);
     setIsEditMode(false);
   };
@@ -707,89 +830,64 @@ export default function ContestDashboardPage() {
   const handleOpenEditSubmission = (submission: Submission) => {
     setEditingSubmission(submission);
     setIsEditMode(true);
-    setSubmitForm({
-      phase: submission.phase.toString(),
-      githubUrl: submission.githubUrl,
-      demoUrl: submission.demoUrl,
-      submissionDescription: submission.submissionDescription || "",
-      aiPromptsUsed: submission.aiPromptsUsed || "",
-      aiToolsUtilized: submission.aiToolsUtilized || "",
-      aiScreenshots:
-        submission.aiScreenshots?.length > 0
-          ? submission.aiScreenshots
-          : [""],
-    });
+    setSubmitPhase(submission.phase.toString());
+    setSubmitValues({ ...valuesOf(submission) });
+    setSubmitError("");
     setSubmitWorkOpen(true);
+  };
+
+  const handleSelectSubmitPhase = (value: string) => {
+    setSubmitPhase(value);
+    setSubmitError("");
+    // Submitting again for a phase updates that submission — start from it.
+    const existing = submissions.find((s) => s.phase === Number(value));
+    setSubmitValues(existing ? { ...valuesOf(existing) } : {});
   };
 
   const handleSubmitWork = async () => {
     setError("");
     setSuccess("");
+    setSubmitError("");
 
-    if (
-      !submitForm.phase ||
-      !submitForm.githubUrl ||
-      !submitForm.demoUrl ||
-      !submitForm.submissionDescription ||
-      !submitForm.aiPromptsUsed ||
-      !submitForm.aiToolsUtilized ||
-      submitForm.aiScreenshots.filter((url) => url.trim()).length === 0
-    ) {
-      setError("All fields including AI evidence are required");
+    const phase = parseInt(submitPhase, 10);
+    if (!submitPhase || Number.isNaN(phase)) {
+      setSubmitError(`Please select a ${phaseWord.toLowerCase()}`);
       return;
     }
 
-    try {
-      let res;
+    // Same validation the API runs, so problems show up before the request.
+    const check = validateSubmission(submissionFields, submitValues, phase);
+    if (check.error !== undefined) {
+      setSubmitError(check.error);
+      return;
+    }
 
-      if (isEditMode && editingSubmission) {
-        res = await fetch(
-          `${apiBase}/submissions/${editingSubmission.id}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              githubUrl: submitForm.githubUrl,
-              demoUrl: submitForm.demoUrl,
-              submissionDescription: submitForm.submissionDescription,
-              aiPromptsUsed: submitForm.aiPromptsUsed,
-              aiToolsUtilized: submitForm.aiToolsUtilized,
-              aiScreenshots: submitForm.aiScreenshots.filter((url) =>
-                url.trim()
-              ),
-            }),
-          }
-        );
-      } else {
-        res = await fetch(`${apiBase}/submissions/create`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            phase: parseInt(submitForm.phase),
-            githubUrl: submitForm.githubUrl,
-            demoUrl: submitForm.demoUrl,
-            submissionDescription: submitForm.submissionDescription,
-            aiPromptsUsed: submitForm.aiPromptsUsed,
-            aiToolsUtilized: submitForm.aiToolsUtilized,
-            aiScreenshots: submitForm.aiScreenshots.filter((url) =>
-              url.trim()
-            ),
-          }),
-        });
-      }
+    setSubmitting(true);
+    try {
+      const res =
+        isEditMode && editingSubmission
+          ? await fetch(`${apiBase}/submissions/${editingSubmission.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fields: check.values }),
+            })
+          : await fetch(`${apiBase}/submissions/create`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ phase, fields: check.values }),
+            });
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error);
+        setSubmitError(data.error || `Failed to save ${t("submission").toLowerCase()}`);
         return;
       }
 
+      const word = t("submission");
       setSuccess(
-        isEditMode
-          ? "Submission updated successfully!"
-          : data.updated
-          ? "Submission updated successfully!"
-          : "Submission created successfully!"
+        isEditMode || data.updated
+          ? `${word} updated successfully!`
+          : `${word} created successfully!`
       );
       setSubmitWorkOpen(false);
       resetSubmitForm();
@@ -798,28 +896,10 @@ export default function ContestDashboardPage() {
         await loadSubmissions(team.id);
       }
     } catch {
-      setError("Failed to submit work");
+      setSubmitError(`Failed to save ${t("submission").toLowerCase()}`);
+    } finally {
+      setSubmitting(false);
     }
-  };
-
-  const addScreenshotField = () => {
-    setSubmitForm({
-      ...submitForm,
-      aiScreenshots: [...submitForm.aiScreenshots, ""],
-    });
-  };
-
-  const removeScreenshotField = (index: number) => {
-    setSubmitForm({
-      ...submitForm,
-      aiScreenshots: submitForm.aiScreenshots.filter((_, i) => i !== index),
-    });
-  };
-
-  const updateScreenshotField = (index: number, value: string) => {
-    const newScreenshots = [...submitForm.aiScreenshots];
-    newScreenshots[index] = value;
-    setSubmitForm({ ...submitForm, aiScreenshots: newScreenshots });
   };
 
   // -----------------------------------------------------------------------
@@ -873,7 +953,7 @@ export default function ContestDashboardPage() {
                 <Link href={`/c/${slug}/judging`}>
                   <Button className="bg-gradient-to-r from-hot-pink to-neon-purple">
                     <Award className="mr-2" size={18} />
-                    Judge
+                    {t("judge")}
                   </Button>
                 </Link>
               )}
@@ -913,9 +993,11 @@ export default function ContestDashboardPage() {
                   </h2>
                   <p className="text-gray-400">{session?.user?.email}</p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-sm text-gray-500">
-                      {session?.user?.role || "No role assigned"}
-                    </span>
+                    {session?.user?.userType === "internal" && (
+                      <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-300">
+                        TeamLease employee
+                      </span>
+                    )}
                     {contestMembership && (
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
@@ -997,6 +1079,29 @@ export default function ContestDashboardPage() {
                     className="bg-white/5 border-white/10 text-white"
                   />
                 </div>
+                {isParticipant && roleOptions.length > 0 && (
+                  <div>
+                    <Label htmlFor="profileRole" className="text-gray-200">
+                      Your role in the {t("team").toLowerCase()}
+                    </Label>
+                    <Select value={profileRole || undefined} onValueChange={setProfileRole}>
+                      <SelectTrigger
+                        id="profileRole"
+                        className="w-full bg-white/5 border-white/10 text-white"
+                      >
+                        <SelectValue placeholder="Choose your role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roleOptions.map((r) => (
+                          <SelectItem key={r.role} value={r.role}>
+                            {r.role}
+                            {r.maxPerTeam ? ` (max ${r.maxPerTeam} per ${t("team").toLowerCase()})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <Button
                   onClick={handleUpdateProfile}
                   className="w-full bg-gradient-to-r from-neon-purple to-electric-blue"
@@ -1064,7 +1169,7 @@ export default function ContestDashboardPage() {
                           <DialogContent className="bg-[#0a0a0a] border-white/10">
                             <DialogHeader>
                               <DialogTitle className="text-2xl font-bold text-white">
-                                Create New Team
+                                Create New {t("team")}
                               </DialogTitle>
                             </DialogHeader>
                             <div className="space-y-4 mt-4">
@@ -1083,36 +1188,82 @@ export default function ContestDashboardPage() {
                                   className="bg-white/5 border-white/10 text-white"
                                 />
                               </div>
-                              <div>
-                                <Label
-                                  htmlFor="track"
-                                  className="text-gray-200"
-                                >
-                                  Select Track
-                                </Label>
-                                <Select
-                                  value={selectedTrackId}
-                                  onValueChange={setSelectedTrackId}
-                                >
-                                  <SelectTrigger className="bg-white/5 border-white/10 text-white">
-                                    <SelectValue placeholder="Choose a track" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {contest.tracks
-                                      .sort(
-                                        (a, b) => a.sortOrder - b.sortOrder
-                                      )
-                                      .map((track) => (
-                                        <SelectItem
-                                          key={track.id}
-                                          value={track.id}
-                                        >
-                                          {track.name}
+                              {hasTracks && (
+                                <div>
+                                  <Label
+                                    htmlFor="track"
+                                    className="text-gray-200"
+                                  >
+                                    Select {trackWord}
+                                  </Label>
+                                  <Select
+                                    value={selectedTrackId}
+                                    onValueChange={setSelectedTrackId}
+                                  >
+                                    <SelectTrigger
+                                      id="track"
+                                      className="w-full bg-white/5 border-white/10 text-white"
+                                    >
+                                      <SelectValue
+                                        placeholder={`Choose a ${trackWord.toLowerCase()}`}
+                                      />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {sortedTracks.map((track) => {
+                                        const taken = takenTrackIds.includes(track.id);
+                                        return (
+                                          <SelectItem
+                                            key={track.id}
+                                            value={track.id}
+                                            disabled={taken}
+                                          >
+                                            {track.name}
+                                            {taken ? " (taken)" : ""}
+                                          </SelectItem>
+                                        );
+                                      })}
+                                    </SelectContent>
+                                  </Select>
+                                  {settings.exclusiveTracks && (
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      Each {trackWord.toLowerCase()} can be picked by only one{" "}
+                                      {t("team").toLowerCase()}.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              {isParticipant && roleOptions.length > 0 && (
+                                <div>
+                                  <Label
+                                    htmlFor="createRole"
+                                    className="text-gray-200"
+                                  >
+                                    Your role in the {t("team").toLowerCase()}
+                                  </Label>
+                                  <Select
+                                    value={
+                                      createRole ||
+                                      contestMembership?.participantRole ||
+                                      undefined
+                                    }
+                                    onValueChange={setCreateRole}
+                                  >
+                                    <SelectTrigger
+                                      id="createRole"
+                                      className="w-full bg-white/5 border-white/10 text-white"
+                                    >
+                                      <SelectValue placeholder="Choose your role" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {roleOptions.map((r) => (
+                                        <SelectItem key={r.role} value={r.role}>
+                                          {r.role}
                                         </SelectItem>
                                       ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
                               <Button
                                 onClick={handleCreateTeam}
                                 className="w-full bg-gradient-to-r from-neon-purple to-electric-blue"
@@ -1185,28 +1336,49 @@ export default function ContestDashboardPage() {
                       </div>
                     )}
                   </div>
-                  <p className="text-gray-400">
-                    Track:{" "}
-                    {team.trackRef?.name ||
-                      getTrackName(team.trackId) ||
-                      team.track ||
-                      "N/A"}
-                  </p>
-                  {!team.approved && (
-                    <p className="text-sm text-yellow-400 mt-2">
-                      Your team is pending approval from judges
+                  {(hasTracks || team.trackId || team.track) && (
+                    <p className="text-gray-400">
+                      {trackWord}:{" "}
+                      {team.trackRef?.name ||
+                        getTrackName(team.trackId) ||
+                        team.track ||
+                        "N/A"}
                     </p>
                   )}
+                  {!team.approved && (
+                    <p className="text-sm text-yellow-400 mt-2">
+                      Your {t("team").toLowerCase()} is pending approval by the
+                      organisers
+                    </p>
+                  )}
+                  {isParticipant &&
+                    roleOptions.length > 0 &&
+                    !contestMembership?.participantRole && (
+                      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-300">
+                        <span>
+                          Pick your role in the {t("team").toLowerCase()} (
+                          {roleOptions.map((r) => r.role).join(", ")}).
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleOpenEditProfile}
+                          className="h-7 border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                        >
+                          Choose role
+                        </Button>
+                      </div>
+                    )}
                 </div>
 
                 {/* Team Members */}
                 <div className="mb-6">
                   <h4 className="text-xl font-bold text-white mb-4">
-                    Team Members ({teamMembers.length}/
+                    Team Members ({teamMembers.filter((m) => m.contestRole !== "mentor").length}/
                     {contest.maxTeamMembers})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {teamMembers.map((member) => (
+                    {teamMembers.filter((m) => m.contestRole !== "mentor").map((member) => (
                       <div
                         key={member.id}
                         className="bg-white/5 border border-white/10 rounded-lg p-4 flex items-start justify-between"
@@ -1272,7 +1444,7 @@ export default function ContestDashboardPage() {
 
                 {/* Add Member Button */}
                 {isCreator &&
-                  teamMembers.length < contest.maxTeamMembers && (
+                  teamMembers.filter((m) => m.contestRole !== "mentor").length < contest.maxTeamMembers && (
                     <Button
                       onClick={() => {
                         setAddMemberOpen(true);
@@ -1359,7 +1531,7 @@ export default function ContestDashboardPage() {
             <DialogContent className="bg-[#0a0a0a] border-white/10">
               <DialogHeader>
                 <DialogTitle className="text-2xl font-bold text-white">
-                  Edit Team
+                  Edit {t("team")}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
@@ -1380,30 +1552,45 @@ export default function ContestDashboardPage() {
                     className="bg-white/5 border-white/10 text-white"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="editTeamTrack" className="text-gray-200">
-                    Select Track
-                  </Label>
-                  <Select
-                    value={editTeamForm.trackId}
-                    onValueChange={(value) =>
-                      setEditTeamForm({ ...editTeamForm, trackId: value })
-                    }
-                  >
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white">
-                      <SelectValue placeholder="Choose a track" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {contest.tracks
-                        .sort((a, b) => a.sortOrder - b.sortOrder)
-                        .map((track) => (
-                          <SelectItem key={track.id} value={track.id}>
-                            {track.name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {hasTracks && (
+                  <div>
+                    <Label htmlFor="editTeamTrack" className="text-gray-200">
+                      Select {trackWord}
+                    </Label>
+                    <Select
+                      value={editTeamForm.trackId}
+                      onValueChange={(value) =>
+                        setEditTeamForm({ ...editTeamForm, trackId: value })
+                      }
+                    >
+                      <SelectTrigger
+                        id="editTeamTrack"
+                        className="w-full bg-white/5 border-white/10 text-white"
+                      >
+                        <SelectValue
+                          placeholder={`Choose a ${trackWord.toLowerCase()}`}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sortedTracks.map((track) => {
+                          const taken =
+                            takenTrackIds.includes(track.id) &&
+                            track.id !== team?.trackId;
+                          return (
+                            <SelectItem
+                              key={track.id}
+                              value={track.id}
+                              disabled={taken}
+                            >
+                              {track.name}
+                              {taken ? " (taken)" : ""}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <Button
                   onClick={handleUpdateTeam}
                   className="w-full bg-gradient-to-r from-neon-purple to-electric-blue"
@@ -1479,7 +1666,8 @@ export default function ContestDashboardPage() {
                   No scores available yet
                 </p>
                 <p className="text-gray-500 text-sm mt-2">
-                  The leaderboard will update as judges evaluate submissions
+                  The leaderboard will update as the {judgesWord} evaluate{" "}
+                  {tp("submission").toLowerCase()}
                 </p>
               </div>
             )}
@@ -1495,223 +1683,141 @@ export default function ContestDashboardPage() {
                 <div className="flex items-center gap-3">
                   <Send className="text-electric-blue" size={32} />
                   <h2 className="text-3xl font-bold text-white">
-                    Submissions
+                    {tp("submission")}
                   </h2>
                 </div>
 
-                <Dialog
-                  open={submitWorkOpen}
-                  onOpenChange={(open) => {
-                    setSubmitWorkOpen(open);
-                    if (!open) resetSubmitForm();
-                  }}
-                >
-                  <DialogTrigger asChild>
-                    <Button className="bg-gradient-to-r from-electric-blue to-hot-pink">
-                      <Plus className="mr-2" size={20} />
-                      Submit Work
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle className="text-2xl font-bold text-white">
-                        {isEditMode ? "Edit Submission" : "Submit Your Work"}
-                      </DialogTitle>
-                      {team && (
+                {contestMembership?.role !== "mentor" && scorablePhases.length > 0 && (
+                  <Dialog
+                    open={submitWorkOpen}
+                    onOpenChange={(open) => {
+                      setSubmitWorkOpen(open);
+                      if (!open) resetSubmitForm();
+                    }}
+                  >
+                    <DialogTrigger asChild>
+                      <Button className="bg-gradient-to-r from-electric-blue to-hot-pink">
+                        <Plus className="mr-2" size={20} />
+                        Submit {submitNoun}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle className="text-2xl font-bold text-white">
+                          {isEditMode
+                            ? `Edit ${t("submission")}`
+                            : `Submit Your ${submitNoun}`}
+                        </DialogTitle>
                         <p className="text-sm text-gray-400 mt-2">
-                          {isEditMode ? "Editing" : "Submitting for"} team:{" "}
+                          {isEditMode ? "Editing" : "Submitting for"}{" "}
+                          {t("team").toLowerCase()}:{" "}
                           <span className="text-neon-purple font-semibold">
                             {team.name}
                           </span>
                           {isEditMode && editingSubmission && (
                             <span className="text-electric-blue ml-2">
-                              (Phase {editingSubmission.phase})
+                              ({phaseWord} {editingSubmission.phase})
                             </span>
                           )}
                         </p>
-                      )}
-                    </DialogHeader>
-                    <div className="space-y-4 mt-4">
-                      {/* Phase selector */}
-                      <div>
-                        <Label className="text-gray-200">Phase</Label>
-                        <Select
-                          value={submitForm.phase}
-                          onValueChange={(value) =>
-                            setSubmitForm({ ...submitForm, phase: value })
-                          }
-                          disabled={isEditMode}
-                        >
-                          <SelectTrigger
-                            className={`bg-white/5 border-white/10 text-white ${
-                              isEditMode
-                                ? "opacity-60 cursor-not-allowed"
-                                : ""
-                            }`}
+                      </DialogHeader>
+                      <div className="space-y-5 mt-4">
+                        {/* Phase selector */}
+                        <div>
+                          <Label className="text-gray-200">{phaseWord}</Label>
+                          <Select
+                            value={submitPhase}
+                            onValueChange={handleSelectSubmitPhase}
+                            disabled={isEditMode}
                           >
-                            <SelectValue placeholder="Select phase" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {scorablePhases.map((phase) => (
-                              <SelectItem
-                                key={phase.phase}
-                                value={phase.phase.toString()}
-                              >
-                                Phase {phase.phase} - {phase.name} (
-                                {phase.maxPoints} pts)
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {isEditMode && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Phase cannot be changed when editing
+                            <SelectTrigger
+                              className={`w-full bg-white/5 border-white/10 text-white ${
+                                isEditMode ? "opacity-60 cursor-not-allowed" : ""
+                              }`}
+                            >
+                              <SelectValue
+                                placeholder={`Select ${phaseWord.toLowerCase()}`}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {scorablePhases.map((phase) => (
+                                <SelectItem
+                                  key={phase.phase}
+                                  value={phase.phase.toString()}
+                                >
+                                  {phaseWord} {phase.phase} - {phase.name} (
+                                  {phase.maxPoints} pts)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {isEditMode ? (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {phaseWord} cannot be changed when editing
+                            </p>
+                          ) : (
+                            submitPhase &&
+                            submissions.some(
+                              (sub) => sub.phase === Number(submitPhase)
+                            ) && (
+                              <p className="text-xs text-amber-400 mt-1">
+                                You already submitted for this{" "}
+                                {phaseWord.toLowerCase()} — submitting again
+                                updates it.
+                              </p>
+                            )
+                          )}
+                        </div>
+
+                        {submitPhase ? (
+                          <DynamicSubmissionForm
+                            fields={submissionFields}
+                            phase={Number(submitPhase)}
+                            values={submitValues}
+                            onChange={setSubmitValues}
+                            contestId={contest.id}
+                            teamId={team.id}
+                            disabled={submitting}
+                          />
+                        ) : (
+                          <p className="text-sm text-gray-500">
+                            Choose a {phaseWord.toLowerCase()} to see what to
+                            hand in.
                           </p>
                         )}
-                      </div>
 
-                      {/* GitHub URL */}
-                      <div>
-                        <Label className="text-gray-200">GitHub URL</Label>
-                        <Input
-                          value={submitForm.githubUrl}
-                          onChange={(e) =>
-                            setSubmitForm({
-                              ...submitForm,
-                              githubUrl: e.target.value,
-                            })
-                          }
-                          placeholder="https://github.com/..."
-                          className="bg-white/5 border-white/10 text-white"
-                        />
-                      </div>
-
-                      {/* Demo URL */}
-                      <div>
-                        <Label className="text-gray-200">Demo URL</Label>
-                        <Input
-                          value={submitForm.demoUrl}
-                          onChange={(e) =>
-                            setSubmitForm({
-                              ...submitForm,
-                              demoUrl: e.target.value,
-                            })
-                          }
-                          placeholder="https://..."
-                          className="bg-white/5 border-white/10 text-white"
-                        />
-                      </div>
-
-                      {/* Submission Description */}
-                      <div>
-                        <Label className="text-gray-200">
-                          Submission Description (Required)
-                        </Label>
-                        <Textarea
-                          value={submitForm.submissionDescription}
-                          onChange={(e) =>
-                            setSubmitForm({
-                              ...submitForm,
-                              submissionDescription: e.target.value,
-                            })
-                          }
-                          placeholder="Describe your changes, updates, and include Google Drive URL for complete documentation..."
-                          className="bg-white/5 border-white/10 text-white min-h-[120px]"
-                        />
-                      </div>
-
-                      {/* AI Prompts Used */}
-                      <div>
-                        <Label className="text-gray-200">
-                          AI Prompts Used (Required)
-                        </Label>
-                        <Textarea
-                          value={submitForm.aiPromptsUsed}
-                          onChange={(e) =>
-                            setSubmitForm({
-                              ...submitForm,
-                              aiPromptsUsed: e.target.value,
-                            })
-                          }
-                          placeholder="Document all AI prompts you used..."
-                          className="bg-white/5 border-white/10 text-white min-h-[100px]"
-                        />
-                      </div>
-
-                      {/* AI Tools Utilized */}
-                      <div>
-                        <Label className="text-gray-200">
-                          AI Tools Utilized (Required)
-                        </Label>
-                        <Textarea
-                          value={submitForm.aiToolsUtilized}
-                          onChange={(e) =>
-                            setSubmitForm({
-                              ...submitForm,
-                              aiToolsUtilized: e.target.value,
-                            })
-                          }
-                          placeholder="List all AI tools (ChatGPT, Copilot, Claude, etc.)..."
-                          className="bg-white/5 border-white/10 text-white min-h-[100px]"
-                        />
-                      </div>
-
-                      {/* AI Screenshots */}
-                      <div>
-                        <Label className="text-gray-200">
-                          AI Screenshots (URLs Required)
-                        </Label>
-                        {submitForm.aiScreenshots.map((url, index) => (
-                          <div key={index} className="flex gap-2 mb-2">
-                            <Input
-                              value={url}
-                              onChange={(e) =>
-                                updateScreenshotField(index, e.target.value)
-                              }
-                              placeholder="https://..."
-                              className="bg-white/5 border-white/10 text-white"
-                            />
-                            {submitForm.aiScreenshots.length > 1 && (
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                onClick={() => removeScreenshotField(index)}
-                              >
-                                Remove
-                              </Button>
-                            )}
+                        {submitError && (
+                          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
+                            {submitError}
                           </div>
-                        ))}
+                        )}
+
                         <Button
-                          type="button"
-                          variant="outline"
-                          onClick={addScreenshotField}
-                          className="mt-2 border-white/20 text-white bg-white/10 hover:bg-white/20"
+                          onClick={handleSubmitWork}
+                          disabled={submitting || !submitPhase}
+                          className="w-full bg-gradient-to-r from-neon-purple to-electric-blue"
                         >
-                          <Plus className="mr-2" size={16} />
-                          Add Screenshot URL
+                          {submitting
+                            ? "Saving..."
+                            : isEditMode
+                            ? `Update ${t("submission")}`
+                            : "Submit"}
                         </Button>
                       </div>
-
-                      <Button
-                        onClick={handleSubmitWork}
-                        className="w-full bg-gradient-to-r from-neon-purple to-electric-blue"
-                      >
-                        {isEditMode ? "Update Submission" : "Submit"}
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
 
               {/* Submission List */}
               {submissions.length === 0 ? (
                 <div className="text-center py-12">
                   <p className="text-gray-400 text-lg">
-                    No submissions yet
+                    No {tp("submission").toLowerCase()} yet
                   </p>
                   <p className="text-gray-500 text-sm mt-2">
-                    Submit your work for any available phase to get started
+                    Submit your work for any open {phaseWord.toLowerCase()} to
+                    get started
                   </p>
                 </div>
               ) : (
@@ -1722,6 +1828,10 @@ export default function ContestDashboardPage() {
                     const phaseInfo = (contest.phaseConfig ?? []).find(
                       (p) => p.phase === submission.phase
                     );
+                    const wasEdited =
+                      !!submission.updatedAt &&
+                      new Date(submission.updatedAt).getTime() >
+                        new Date(submission.submittedAt).getTime() + 1000;
 
                     return (
                       <div
@@ -1732,7 +1842,7 @@ export default function ContestDashboardPage() {
                           <div>
                             <div className="flex items-center gap-3 mb-2 flex-wrap">
                               <h3 className="text-xl font-bold text-white">
-                                Phase {submission.phase}
+                                {phaseWord} {submission.phase}
                                 {phaseInfo && (
                                   <span className="text-gray-400 font-normal text-base ml-2">
                                     - {phaseInfo.name}
@@ -1744,51 +1854,43 @@ export default function ContestDashboardPage() {
                                   {phaseInfo.maxPoints} pts max
                                 </span>
                               )}
-                              {submission.updatedAt &&
-                                new Date(submission.updatedAt).getTime() >
-                                  new Date(
-                                    submission.submittedAt
-                                  ).getTime() +
-                                    1000 && (
-                                  <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400">
-                                    Edited
-                                  </span>
-                                )}
+                              {wasEdited && (
+                                <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400">
+                                  Edited
+                                </span>
+                              )}
                             </div>
                             <p className="text-sm text-gray-400">
                               Submitted:{" "}
                               {new Date(
                                 submission.submittedAt
                               ).toLocaleDateString()}
-                              {submission.updatedAt &&
-                                new Date(submission.updatedAt).getTime() >
-                                  new Date(
-                                    submission.submittedAt
-                                  ).getTime() +
-                                    1000 && (
-                                  <span className="text-amber-400 ml-2">
-                                    (Updated:{" "}
-                                    {new Date(
-                                      submission.updatedAt
-                                    ).toLocaleDateString()}
-                                    )
-                                  </span>
-                                )}
+                              {wasEdited && submission.updatedAt && (
+                                <span className="text-amber-400 ml-2">
+                                  (Updated:{" "}
+                                  {new Date(
+                                    submission.updatedAt
+                                  ).toLocaleDateString()}
+                                  )
+                                </span>
+                              )}
                             </p>
                           </div>
 
                           <div className="flex items-center gap-3">
-                            <Button
-                              onClick={() =>
-                                handleOpenEditSubmission(submission)
-                              }
-                              variant="outline"
-                              size="sm"
-                              className="border-white/20 text-white bg-white/10 hover:bg-white/20"
-                            >
-                              <Edit className="mr-2" size={14} />
-                              Edit
-                            </Button>
+                            {contestMembership?.role !== "mentor" && (
+                              <Button
+                                onClick={() =>
+                                  handleOpenEditSubmission(submission)
+                                }
+                                variant="outline"
+                                size="sm"
+                                className="border-white/20 text-white bg-white/10 hover:bg-white/20"
+                              >
+                                <Edit className="mr-2" size={14} />
+                                Edit
+                              </Button>
+                            )}
 
                             {/* Status Badge */}
                             {submissionStatus && (
@@ -1809,47 +1911,20 @@ export default function ContestDashboardPage() {
                                 )}
                                 <p className="text-xs text-gray-500 mt-1">
                                   {submissionStatus.judgesScored} /{" "}
-                                  {submissionStatus.totalJudges} judges
+                                  {submissionStatus.totalJudges} {judgesWord}
                                 </p>
                               </div>
                             )}
                           </div>
                         </div>
 
-                        {/* Links */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                          <a
-                            href={submission.githubUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-electric-blue hover:underline text-sm"
-                          >
-                            View GitHub Repo &rarr;
-                          </a>
-                          <a
-                            href={submission.demoUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-hot-pink hover:underline text-sm"
-                          >
-                            View Demo &rarr;
-                          </a>
-                        </div>
-
-                        {/* Score Display (if available) */}
-                        {submissionStatus &&
-                          submissionStatus.averageScore > 0 && (
-                            <div className="border-t border-white/10 pt-4">
-                              <div className="flex items-center justify-between mb-3">
-                                <span className="text-gray-400 text-lg">
-                                  Average Score:
-                                </span>
-                                <span className="text-3xl font-bold bg-gradient-to-r from-neon-purple to-electric-blue bg-clip-text text-transparent">
-                                  {submissionStatus.averageScore.toFixed(2)}
-                                </span>
-                              </div>
-                            </div>
-                          )}
+                        {/* Submitted values, rendered from the contest's field config */}
+                        <SubmissionView
+                          fields={submissionFields}
+                          values={valuesOf(submission)}
+                          phase={submission.phase}
+                          compact
+                        />
                       </div>
                     );
                   })}
@@ -1857,6 +1932,90 @@ export default function ContestDashboardPage() {
               )}
             </GlassCard>
           )}
+
+          {/* ============================================================ */}
+          {/* Jury Feedback (visible once results are published)            */}
+          {/* ============================================================ */}
+
+          {team &&
+            teamFeedback?.visible &&
+            teamFeedback.phases.some(
+              (p) => p.averageWeighted !== null || p.feedback.length > 0
+            ) && (
+              <GlassCard className="p-8 mb-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <MessageSquareQuote className="text-hot-pink" size={32} />
+                  <h2 className="text-3xl font-bold text-white">
+                    {t("judge")} Feedback
+                  </h2>
+                </div>
+                <div className="space-y-6">
+                  {teamFeedback.phases
+                    .filter(
+                      (p) => p.averageWeighted !== null || p.feedback.length > 0
+                    )
+                    .map((p) => {
+                      const maxPts =
+                        (contest.phaseConfig ?? []).find(
+                          (pc) => pc.phase === p.phase
+                        )?.maxPoints ?? null;
+                      return (
+                        <div
+                          key={p.phase}
+                          className="bg-white/5 border border-white/10 rounded-lg p-6"
+                        >
+                          <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+                            <h3 className="text-xl font-bold text-white">
+                              {phaseWord} {p.phase}
+                              <span className="text-gray-400 font-normal text-base ml-2">
+                                - {p.name}
+                              </span>
+                            </h3>
+                            {p.averageWeighted !== null && (
+                              <div className="text-right">
+                                <p className="text-2xl font-bold bg-gradient-to-r from-neon-purple to-electric-blue bg-clip-text text-transparent">
+                                  {p.phasePoints?.toFixed(2)}
+                                  {maxPts !== null && (
+                                    <span className="text-sm text-gray-400 font-normal">
+                                      {" "}
+                                      / {maxPts} pts
+                                    </span>
+                                  )}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  Average score {p.averageWeighted.toFixed(1)} / 100
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          {p.feedback.length > 0 ? (
+                            <ul className="space-y-3">
+                              {p.feedback.map((f, i) => (
+                                <li
+                                  key={i}
+                                  className="border-l-2 border-hot-pink/50 pl-4"
+                                >
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                                    {f.jury}
+                                  </p>
+                                  <p className="text-sm text-gray-200 whitespace-pre-wrap break-words">
+                                    {f.text}
+                                  </p>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-gray-500">
+                              No written feedback for this{" "}
+                              {phaseWord.toLowerCase()}.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </GlassCard>
+            )}
 
           {/* ============================================================ */}
           {/* Footer Navigation                                             */}

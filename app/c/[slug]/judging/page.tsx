@@ -1,8 +1,8 @@
 "use client";
 
-import { useContest } from "@/lib/contest-context";
+import { useContest, useContestConfig } from "@/lib/contest-context";
 import { useSession } from "next-auth/react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type ComponentProps } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import GlowButton from "@/components/GlowButton";
@@ -11,7 +11,12 @@ import BackgroundPattern from "@/components/BackgroundPattern";
 import Leaderboard from "@/components/Leaderboard";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
+import { CriterionInput } from "@/components/scoring/CriterionInput";
+import { SubmissionView } from "@/components/submissions/SubmissionView";
+import { calculateWeightedScore } from "@/lib/scoring";
+import { scaleDefault, scaleLabelFor, type SubmissionValues } from "@/lib/contest-config";
+import { submissionValues } from "@/lib/submission-fields";
 import {
   Dialog,
   DialogContent,
@@ -20,12 +25,10 @@ import {
 } from "@/components/ui/dialog";
 import {
   Award,
-  ExternalLink,
   CheckCircle,
   XCircle,
   Home,
   Settings,
-  LogOut,
   Users,
   Crown,
   Loader2,
@@ -50,24 +53,27 @@ interface Team {
   id: string;
   name: string;
   track: string | null;
-  trackName: string | null;
+  trackName?: string | null;
+  trackRef?: { id: string; name: string } | null;
   approved: boolean;
   leaderId: string | null;
   members: TeamMember[];
 }
 
-interface Submission {
+type Submission = {
   id: string;
   teamId: string;
   phase: number;
-  githubUrl: string;
-  demoUrl: string;
-  submissionDescription: string | null;
-  aiPromptsUsed: string;
-  aiToolsUtilized: string;
-  aiScreenshots: string[];
+  /** Generic values (jsonb); legacy hackathon columns below are the fallback */
+  fields?: SubmissionValues | null;
+  githubUrl?: string | null;
+  demoUrl?: string | null;
+  submissionDescription?: string | null;
+  aiPromptsUsed?: string | null;
+  aiToolsUtilized?: string | null;
+  aiScreenshots?: string[] | null;
   submittedAt: string;
-}
+};
 
 interface TeamWithSubmissions extends Team {
   submissions: Submission[];
@@ -80,7 +86,15 @@ interface ExistingScore {
   criteriaScores: Record<string, number> | null;
   weightedScore: string;
   phase: number;
+  feedback?: string | null;
+  privateNote?: string | null;
 }
+
+interface ScoreRow {
+  submissionId: string;
+}
+
+type LeaderboardEntries = ComponentProps<typeof Leaderboard>["entries"];
 
 interface ContestUserEntry {
   id: string;
@@ -95,6 +109,7 @@ interface ContestUserEntry {
 
 export default function ContestJudgingPage() {
   const { contest } = useContest();
+  const { t, tp, scale, submissionFields } = useContestConfig();
   const { data: session, status } = useSession();
 
   // Auth & access
@@ -103,7 +118,7 @@ export default function ContestJudgingPage() {
 
   // Data
   const [teams, setTeams] = useState<TeamWithSubmissions[]>([]);
-  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntries>([]);
   const [scoresMap, setScoresMap] = useState<Map<string, ExistingScore>>(new Map());
   const [allScoresCount, setAllScoresCount] = useState<Map<string, number>>(new Map());
   const [judgeCount, setJudgeCount] = useState(0);
@@ -113,6 +128,9 @@ export default function ContestJudgingPage() {
   const [scoringSubmission, setScoringSubmission] = useState<Submission | null>(null);
   const [scoringTeam, setScoringTeam] = useState<Team | null>(null);
   const [criteriaValues, setCriteriaValues] = useState<Record<string, number>>({});
+  const [feedbackText, setFeedbackText] = useState("");
+  const [privateNoteText, setPrivateNoteText] = useState("");
+  const [savingScore, setSavingScore] = useState(false);
 
   // Alerts
   const [error, setError] = useState("");
@@ -121,13 +139,16 @@ export default function ContestJudgingPage() {
   const slug = contest.slug;
   const scoringCriteria: ScoringCriterion[] = contest.scoringCriteria ?? [];
   const phaseConfig: PhaseConfig[] = contest.phaseConfig ?? [];
+  const scorable = phaseConfig.filter((p) => p.maxPoints > 0);
+  const defaultScore = scaleDefault(scale);
+  const phaseWord = t("phase");
+  const judgeWord = t("judge");
+  const judgesWord = tp("judge").toLowerCase();
 
   // Build a phase -> maxPoints lookup
   const phaseMaxPoints: Record<number, number> = {};
-  for (const pc of phaseConfig) {
-    if (pc.maxPoints > 0) {
-      phaseMaxPoints[pc.phase] = pc.maxPoints;
-    }
+  for (const pc of scorable) {
+    phaseMaxPoints[pc.phase] = pc.maxPoints;
   }
 
   // -----------------------------------------------------------------------
@@ -180,7 +201,7 @@ export default function ContestJudgingPage() {
       const myScoresRes = await fetch(`/api/c/${slug}/scores/all?judgeOnly=true`);
       const myScoresData = await myScoresRes.json();
       const newScoresMap = new Map<string, ExistingScore>();
-      (myScoresData.scores || []).forEach((score: any) => {
+      (myScoresData.scores || []).forEach((score: ExistingScore) => {
         newScoresMap.set(score.submissionId, score);
       });
       setScoresMap(newScoresMap);
@@ -189,7 +210,7 @@ export default function ContestJudgingPage() {
       const allScoresRes = await fetch(`/api/c/${slug}/scores/all`);
       const allScoresData = await allScoresRes.json();
       const countMap = new Map<string, number>();
-      (allScoresData.scores || []).forEach((score: any) => {
+      (allScoresData.scores || []).forEach((score: ScoreRow) => {
         const cur = countMap.get(score.submissionId) || 0;
         countMap.set(score.submissionId, cur + 1);
       });
@@ -225,44 +246,26 @@ export default function ContestJudgingPage() {
   const openScoringDialog = (submission: Submission, team: Team) => {
     setScoringSubmission(submission);
     setScoringTeam(team);
+    setError("");
 
     const existingScore = scoresMap.get(submission.id);
     const initial: Record<string, number> = {};
 
     for (const c of scoringCriteria) {
-      if (existingScore?.criteriaScores && existingScore.criteriaScores[c.key] !== undefined) {
-        initial[c.key] = existingScore.criteriaScores[c.key];
-      } else {
-        initial[c.key] = 50;
-      }
+      const prev = existingScore?.criteriaScores?.[c.key];
+      initial[c.key] = typeof prev === "number" ? prev : defaultScore;
     }
     setCriteriaValues(initial);
+    setFeedbackText(existingScore?.feedback ?? "");
+    setPrivateNoteText(existingScore?.privateNote ?? "");
   };
 
-  const calculateWeightedScore = useCallback((): number => {
-    let weightedSum = 0;
-    let totalWeight = 0;
-    for (const c of scoringCriteria) {
-      const val = criteriaValues[c.key] ?? 50;
-      weightedSum += val * c.weight;
-      totalWeight += c.weight;
-    }
-    if (totalWeight > 0 && totalWeight !== 1) {
-      return weightedSum / totalWeight;
-    }
-    return weightedSum;
-  }, [criteriaValues, scoringCriteria]);
-
-  const calculatePhaseScore = useCallback(
-    (phase: number): string => {
-      const weighted = calculateWeightedScore();
-      const maxPts = phaseMaxPoints[phase] || 25;
-      return ((weighted / 100) * maxPts).toFixed(2);
-    },
-    [calculateWeightedScore, phaseMaxPoints]
-  );
-
   const getPhaseMaxPoints = (phase: number) => phaseMaxPoints[phase] || 25;
+
+  // Live preview: normalised 0-100 weighted score and the phase points it maps to.
+  const weightedPreview = calculateWeightedScore(criteriaValues, scoringCriteria, scale);
+  const phasePreview = (phase: number) =>
+    ((weightedPreview / 100) * getPhaseMaxPoints(phase)).toFixed(2);
 
   // -----------------------------------------------------------------------
   // Submit scores
@@ -271,6 +274,7 @@ export default function ContestJudgingPage() {
     if (!scoringSubmission) return;
     setError("");
     setSuccess("");
+    setSavingScore(true);
 
     try {
       const res = await fetch(`/api/c/${slug}/scores/submit`, {
@@ -279,6 +283,8 @@ export default function ContestJudgingPage() {
         body: JSON.stringify({
           submissionId: scoringSubmission.id,
           criteriaScores: criteriaValues,
+          feedback: feedbackText,
+          privateNote: privateNoteText,
         }),
       });
       const data = await res.json();
@@ -291,6 +297,8 @@ export default function ContestJudgingPage() {
       loadJudgingData();
     } catch {
       setError("Failed to submit scores");
+    } finally {
+      setSavingScore(false);
     }
   };
 
@@ -354,7 +362,7 @@ export default function ContestJudgingPage() {
           <ShieldAlert className="mx-auto text-red-400 mb-4" size={48} />
           <h2 className="text-2xl font-bold text-white mb-2">Access Denied</h2>
           <p className="text-gray-400 mb-6">
-            You are not a judge for <span className="text-white font-semibold">{contest.name}</span>.
+            You are not a {judgeWord.toLowerCase()} for <span className="text-white font-semibold">{contest.name}</span>.
             Contact a contest admin if you believe this is an error.
           </p>
           <Link href={`/c/${slug}`}>
@@ -396,7 +404,7 @@ export default function ContestJudgingPage() {
               <Award className="text-neon-purple" size={48} />
               <div>
                 <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-                  Judging Portal
+                  {judgeWord} Portal
                 </h1>
                 <p className="text-gray-400 text-sm mt-1">{contest.name}</p>
               </div>
@@ -458,7 +466,9 @@ export default function ContestJudgingPage() {
           {/* Teams & Submissions */}
           <GlassCard className="p-8">
             <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-              <h2 className="text-3xl font-bold text-white">Teams & Submissions</h2>
+              <h2 className="text-3xl font-bold text-white">
+                {tp("team")} & {tp("submission")}
+              </h2>
               <div className="text-right">
                 <p className="text-sm text-gray-400">Approved Teams</p>
                 <p className="text-2xl font-bold text-white">
@@ -488,7 +498,7 @@ export default function ContestJudgingPage() {
                           )}
                         </div>
                         <p className="text-gray-400 mb-3">
-                          Track: {team.trackName || team.track || "N/A"}
+                          {t("track")}: {team.trackRef?.name || team.trackName || team.track || "N/A"}
                         </p>
 
                         {/* Team Members */}
@@ -588,7 +598,7 @@ export default function ContestJudgingPage() {
                                 <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <p className="text-white font-semibold whitespace-nowrap">
-                                      Phase {submission.phase}
+                                      {phaseWord} {submission.phase}
                                     </p>
                                     <span
                                       className={`px-2 py-0.5 text-xs rounded-full font-semibold whitespace-nowrap ${
@@ -599,7 +609,7 @@ export default function ContestJudgingPage() {
                                           : "bg-gray-500/20 text-gray-400 border border-gray-500/30"
                                       }`}
                                     >
-                                      {judgesScored}/{totalJudges} judges
+                                      {judgesScored}/{totalJudges} {judgesWord}
                                     </span>
                                     {isComplete && <CheckCircle size={16} className="text-green-400" />}
                                   </div>
@@ -641,7 +651,7 @@ export default function ContestJudgingPage() {
                                     : "bg-gradient-to-r from-neon-purple to-electric-blue"
                                 }`}
                               >
-                                {existingScore ? "Edit Score" : "Score Submission"}
+                                {existingScore ? "Edit Score" : `Score ${t("submission")}`}
                               </Button>
                             </div>
                           );
@@ -664,77 +674,23 @@ export default function ContestJudgingPage() {
       <Dialog open={!!scoringSubmission} onOpenChange={() => setScoringSubmission(null)}>
         <DialogContent className="bg-gradient-to-br from-[#1a1525] via-[#12101a] to-[#0d1117] border border-purple-500/20 shadow-2xl shadow-purple-900/20 max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-3xl font-bold text-white">Score Submission</DialogTitle>
+            <DialogTitle className="text-3xl font-bold text-white">
+              Score {t("submission")}
+            </DialogTitle>
           </DialogHeader>
 
           {scoringSubmission && scoringTeam && (
             <div className="space-y-6 mt-4">
-              {/* Submission Details */}
+              {/* Submission Details — rendered from the contest's field config */}
               <div className="bg-white/5 border border-white/10 rounded-lg p-6">
                 <h3 className="text-xl font-bold text-white mb-4">
-                  {scoringTeam.name} - Phase {scoringSubmission.phase}
+                  {scoringTeam.name} - {phaseWord} {scoringSubmission.phase}
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <a
-                    href={scoringSubmission.githubUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-electric-blue hover:underline"
-                  >
-                    <ExternalLink size={16} />
-                    GitHub Repository
-                  </a>
-                  <a
-                    href={scoringSubmission.demoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-hot-pink hover:underline"
-                  >
-                    <ExternalLink size={16} />
-                    Live Demo
-                  </a>
-                </div>
-
-                <div className="space-y-4">
-                  {scoringSubmission.submissionDescription && (
-                    <div>
-                      <h4 className="text-white font-semibold mb-2">Description:</h4>
-                      <p className="text-gray-400 text-sm whitespace-pre-wrap">
-                        {scoringSubmission.submissionDescription}
-                      </p>
-                    </div>
-                  )}
-                  <div>
-                    <h4 className="text-white font-semibold mb-2">AI Prompts Used:</h4>
-                    <p className="text-gray-400 text-sm whitespace-pre-wrap">
-                      {scoringSubmission.aiPromptsUsed}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-white font-semibold mb-2">AI Tools Utilized:</h4>
-                    <p className="text-gray-400 text-sm whitespace-pre-wrap">
-                      {scoringSubmission.aiToolsUtilized}
-                    </p>
-                  </div>
-                  {scoringSubmission.aiScreenshots && scoringSubmission.aiScreenshots.length > 0 && (
-                    <div>
-                      <h4 className="text-white font-semibold mb-2">AI Screenshots:</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        {scoringSubmission.aiScreenshots.map((url, index) => (
-                          <a
-                            key={index}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-electric-blue hover:underline break-all"
-                          >
-                            Screenshot {index + 1}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <SubmissionView
+                  fields={submissionFields}
+                  values={submissionValues(scoringSubmission)}
+                  phase={scoringSubmission.phase}
+                />
               </div>
 
               {/* Scoring Instructions */}
@@ -742,32 +698,44 @@ export default function ContestJudgingPage() {
                 <h4 className="text-blue-400 font-semibold mb-2">How to Score</h4>
                 <p className="text-gray-300 text-sm mb-2">
                   Rate each criterion from{" "}
-                  <span className="text-green-400 font-bold">0 (Poor)</span> to{" "}
-                  <span className="text-green-400 font-bold">100 (Excellent)</span>. Drag the slider
-                  to adjust.
+                  <span className="text-green-400 font-bold">
+                    {scale.min}
+                    {scaleLabelFor(scale, scale.min) ? ` (${scaleLabelFor(scale, scale.min)})` : " (Poor)"}
+                  </span>{" "}
+                  to{" "}
+                  <span className="text-green-400 font-bold">
+                    {scale.max}
+                    {scaleLabelFor(scale, scale.max) ? ` (${scaleLabelFor(scale, scale.max)})` : " (Excellent)"}
+                  </span>
+                  .
                 </p>
+                {scale.labels && scale.labels.length > 0 && (
+                  <p className="text-gray-400 text-xs mb-2">
+                    {[...scale.labels]
+                      .sort((a, b) => b.min - a.min)
+                      .map((l) => `${l.min === l.max ? l.min : `${l.min}-${l.max}`} ${l.label}`)
+                      .join(" · ")}
+                  </p>
+                )}
                 <p className="text-gray-400 text-sm">
-                  The final score is calculated using weighted averages and scaled to the phase
-                  maximum.
-                  {phaseConfig
-                    .filter((p) => p.maxPoints > 0)
-                    .map((p, i) => (
-                      <span key={p.phase} className="ml-2">
-                        <span className="text-neon-purple font-semibold">
-                          Phase {p.phase}: {p.maxPoints} pts
-                        </span>
-                        {i <
-                          phaseConfig.filter((pp) => pp.maxPoints > 0).length - 1 && ","}
+                  The final score is a weighted average (normalised to 0-100) scaled to the{" "}
+                  {phaseWord.toLowerCase()} maximum.
+                  {scorable.map((p, i) => (
+                    <span key={p.phase} className="ml-2">
+                      <span className="text-neon-purple font-semibold">
+                        {phaseWord} {p.phase}: {p.maxPoints} pts
                       </span>
-                    ))}
+                      {i < scorable.length - 1 && ","}
+                    </span>
+                  ))}
                 </p>
               </div>
 
-              {/* Dynamic Scoring Sliders */}
+              {/* Criterion inputs on the contest's scale */}
               <div className="space-y-6">
                 {scoringCriteria.map((criterion) => (
                   <div key={criterion.key}>
-                    <div className="flex justify-between mb-1">
+                    <div className="flex justify-between mb-1 gap-3">
                       <Label className="text-gray-200">
                         {criterion.name}{" "}
                         <span className="text-gray-500">
@@ -775,58 +743,95 @@ export default function ContestJudgingPage() {
                         </span>
                       </Label>
                       <span className="text-white font-bold">
-                        {criteriaValues[criterion.key] ?? 50}
+                        {criteriaValues[criterion.key] ?? defaultScore}
+                        <span className="text-gray-500 font-normal text-sm"> / {scale.max}</span>
                       </span>
                     </div>
                     {criterion.description && (
                       <p className="text-xs text-gray-500 mb-2">{criterion.description}</p>
                     )}
-                    <div className="relative">
-                      <Slider
-                        value={[criteriaValues[criterion.key] ?? 50]}
-                        onValueChange={(value) =>
-                          setCriteriaValues((prev) => ({ ...prev, [criterion.key]: value[0] }))
-                        }
-                        min={0}
-                        max={100}
-                        step={1}
-                        className="w-full"
-                      />
-                      <div className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>0 (Poor)</span>
-                        <span>50</span>
-                        <span>100 (Excellent)</span>
-                      </div>
-                    </div>
+                    <CriterionInput
+                      scale={scale}
+                      value={criteriaValues[criterion.key] ?? defaultScore}
+                      onChange={(v) =>
+                        setCriteriaValues((prev) => ({ ...prev, [criterion.key]: v }))
+                      }
+                      disabled={savingScore}
+                    />
                   </div>
                 ))}
 
+                {/* Feedback + private note */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="score-feedback" className="text-gray-200">
+                      Feedback to {t("team").toLowerCase()}
+                    </Label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Shared anonymously with the {t("team").toLowerCase()} once results are published.
+                    </p>
+                    <Textarea
+                      id="score-feedback"
+                      value={feedbackText}
+                      maxLength={5000}
+                      disabled={savingScore}
+                      onChange={(e) => setFeedbackText(e.target.value)}
+                      placeholder="Strengths, gaps and what to improve..."
+                      className="bg-white/5 border-white/10 text-white min-h-[120px]"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="score-private-note" className="text-gray-200">
+                      Private note ({judgeWord.toLowerCase()} only)
+                    </Label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Never shown to the {t("team").toLowerCase()}.
+                    </p>
+                    <Textarea
+                      id="score-private-note"
+                      value={privateNoteText}
+                      maxLength={5000}
+                      disabled={savingScore}
+                      onChange={(e) => setPrivateNoteText(e.target.value)}
+                      placeholder="Notes for yourself and the other organisers..."
+                      className="bg-white/5 border-white/10 text-white min-h-[120px]"
+                    />
+                  </div>
+                </div>
+
                 {/* Weighted Total */}
                 <div className="bg-gradient-to-r from-neon-purple/20 via-electric-blue/20 to-hot-pink/20 border border-white/20 rounded-lg p-6">
-                  <div className="flex justify-between items-center mb-4">
+                  <div className="flex justify-between items-center mb-4 gap-3">
                     <span className="text-xl font-bold text-white">Weighted Score (0-100):</span>
                     <span className="text-3xl font-bold text-white">
-                      {calculateWeightedScore().toFixed(2)}
+                      {weightedPreview.toFixed(2)}
                     </span>
                   </div>
                   <div className="border-t border-white/20 pt-4">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center gap-3">
                       <span className="text-2xl font-bold text-white">
-                        Phase {scoringSubmission.phase} Score (out of{" "}
+                        {phaseWord} {scoringSubmission.phase} Score (out of{" "}
                         {getPhaseMaxPoints(scoringSubmission.phase)} pts):
                       </span>
                       <span className="text-4xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-                        {calculatePhaseScore(scoringSubmission.phase)}
+                        {phasePreview(scoringSubmission.phase)}
                       </span>
                     </div>
                   </div>
                 </div>
 
+                {error && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
+                    {error}
+                  </div>
+                )}
+
                 <Button
                   onClick={handleSubmitScores}
+                  disabled={savingScore}
                   className="w-full bg-gradient-to-r from-neon-purple to-electric-blue text-lg py-6"
                 >
-                  Submit Scores
+                  {savingScore ? "Saving..." : "Submit Scores"}
                 </Button>
               </div>
             </div>

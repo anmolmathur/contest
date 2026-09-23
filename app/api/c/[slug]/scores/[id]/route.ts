@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, submissions, scores, contests, contestUsers } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { scores } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
+import { validateCriteriaScores, calculateWeightedScore, type ScoringCriterion } from "@/lib/scoring";
+import { parseOptionalText } from "@/lib/api-input";
 
 // Legacy fixed field keys that map to dedicated columns
 const LEGACY_FIELD_MAP: Record<string, string> = {
@@ -53,7 +55,7 @@ export async function GET(
             team: true,
           },
         },
-        judge: true,
+        judge: { columns: { id: true, name: true, email: true } },
       },
     });
 
@@ -83,6 +85,13 @@ export async function GET(
         innovationScore: score.innovationScore,
         executionScore: score.executionScore,
         criteriaScores: score.criteriaScores,
+        weightedScore: calculateWeightedScore(
+          score.criteriaScores as Record<string, number> | null,
+          (contest.scoringCriteria as ScoringCriterion[] | null) ?? [],
+          contest.scoringScale,
+        ).toFixed(2),
+        feedback: score.feedback ?? null,
+        privateNote: score.privateNote ?? null,
         createdAt: score.createdAt,
         updatedAt: score.updatedAt,
       },
@@ -159,33 +168,46 @@ export async function PUT(
       );
     }
 
-    const body = await req.json();
+    if (contest.status === "completed" || contest.status === "archived") {
+      return NextResponse.json(
+        { error: "Contest is completed or archived; scoring is frozen" },
+        { status: 409 }
+      );
+    }
+
+    const body = (await req.json().catch(() => null)) ?? {};
     const { criteriaScores, aiUsageScore, businessImpactScore, uxScore, innovationScore, executionScore } = body;
 
     // Build update object
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
-    // Handle dynamic criteriaScores
-    if (criteriaScores && typeof criteriaScores === "object") {
-      // Validate all score values are 0-100
-      const scoreEntries = Object.entries(criteriaScores) as [string, unknown][];
-      for (const [key, value] of scoreEntries) {
-        if (typeof value !== "number" || value < 0 || value > 100) {
-          return NextResponse.json(
-            { error: `Score for "${key}" must be a number between 0 and 100` },
-            { status: 400 }
-          );
-        }
+    // Handle dynamic criteriaScores (validated against the contest's scale)
+    if (criteriaScores && typeof criteriaScores === "object" && !Array.isArray(criteriaScores)) {
+      const scaleError = validateCriteriaScores(criteriaScores, contest.scoringScale);
+      if (scaleError) {
+        return NextResponse.json({ error: scaleError }, { status: 400 });
       }
       updateData.criteriaScores = criteriaScores;
 
-      // Also update legacy fields if matching keys exist
+      // Also update legacy (integer) fields if matching keys exist
       for (const [criteriaKey, columnName] of Object.entries(LEGACY_FIELD_MAP)) {
         if (criteriaKey in criteriaScores) {
-          updateData[columnName] = criteriaScores[criteriaKey];
+          updateData[columnName] = Math.round(criteriaScores[criteriaKey]);
         }
       }
     }
+
+    // Jury feedback (visible to the team after results) + private note (jury only)
+    const feedback = parseOptionalText(body.feedback, "Feedback");
+    if (feedback.error !== undefined) {
+      return NextResponse.json({ error: feedback.error }, { status: 400 });
+    }
+    const privateNote = parseOptionalText(body.privateNote, "Private note");
+    if (privateNote.error !== undefined) {
+      return NextResponse.json({ error: privateNote.error }, { status: 400 });
+    }
+    if (feedback.value !== undefined) updateData.feedback = feedback.value;
+    if (privateNote.value !== undefined) updateData.privateNote = privateNote.value;
 
     // Also support direct legacy field updates for backward compat
     if (aiUsageScore !== undefined) updateData.aiUsageScore = aiUsageScore;

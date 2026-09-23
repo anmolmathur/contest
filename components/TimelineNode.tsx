@@ -32,7 +32,7 @@ export default function TimelineNode({
       whileInView={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.5, delay: index * 0.2 }}
       viewport={{ once: true }}
-      className="relative flex gap-8 items-start"
+      className="relative flex gap-4 sm:gap-8 items-start"
     >
       {/* Glowing node */}
       <motion.div
@@ -56,19 +56,19 @@ export default function TimelineNode({
       <div className="flex-1">
         <motion.div
           onClick={() => hasExpandableContent && setIsExpanded(!isExpanded)}
-          className={`bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-6 ${
+          className={`bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-4 sm:p-6 ${
             hasExpandableContent ? "cursor-pointer hover:bg-white/10 transition-colors" : ""
           }`}
         >
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1">
+          <div className="flex items-center justify-between gap-3 sm:gap-4">
+            <div className="flex-1 min-w-0">
               <div className="text-hot-pink font-bold text-sm mb-2">{date}</div>
-              <h3 className="text-2xl font-bold text-white mb-2">{title}</h3>
+              <h3 className="text-xl sm:text-2xl font-bold text-white mb-2 break-words">{title}</h3>
               <p className="text-gray-400">{description}</p>
             </div>
-            <div className="flex items-center gap-4 flex-shrink-0">
+            <div className="flex flex-col-reverse sm:flex-row items-end sm:items-center gap-2 sm:gap-4 flex-shrink-0">
               {points !== undefined && points > 0 && (
-                <div className="bg-gradient-to-r from-neon-purple to-electric-blue text-white font-bold px-4 py-2 rounded-lg text-sm whitespace-nowrap">
+                <div className="bg-gradient-to-r from-neon-purple to-electric-blue text-white font-bold px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap">
                   {points} pts
                 </div>
               )}

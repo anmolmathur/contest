@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { teams, users, contestUsers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
+import { checkTeamSlot } from "@/lib/team-capacity";
 
 export async function POST(
   req: NextRequest,
@@ -79,53 +80,17 @@ export async function POST(
       );
     }
 
-    // Get current team members (via contest_users). Mentors are EXCLUDED
-    // from the roster for team-size accounting because they don't count
-    // against maxTeamMembers.
-    const teamMembers = await db.query.contestUsers.findMany({
-      where: and(
-        eq(contestUsers.teamId, teamId),
-        eq(contestUsers.contestId, contest.id),
-      ),
-      with: {
-        user: { columns: { id: true, role: true } },
-      },
+    // Team size (participants only — mentors don't count against
+    // maxTeamMembers) and per-role caps from contest.roleConfig.
+    const slotError = await checkTeamSlot({
+      contest,
+      teamId,
+      userId,
+      participantRole: targetContestUser.participantRole,
+      mode: "join",
     });
-    const participantMembers = teamMembers.filter((m) => m.role !== "mentor");
-
-    // Check team size limit from contest config
-    if (participantMembers.length >= contest.maxTeamMembers) {
-      return NextResponse.json(
-        { error: `Team is full (maximum ${contest.maxTeamMembers} members)` },
-        { status: 400 }
-      );
-    }
-
-    // Validate role limits from contest.roleConfig
-    const roleConfig = contest.roleConfig as Array<{ role: string; maxPerTeam: number }> | null;
-    if (roleConfig && targetContestUser.participantRole) {
-      const roleCounts: Record<string, number> = {};
-      // Only count participants; mentors are exempt from per-role caps.
-      for (const member of participantMembers) {
-        const cu = await getContestUser(member.userId, contest.id);
-        if (cu?.participantRole) {
-          roleCounts[cu.participantRole] = (roleCounts[cu.participantRole] || 0) + 1;
-        }
-      }
-
-      const newUserRole = targetContestUser.participantRole;
-      const roleLimit = roleConfig.find((rc) => rc.role === newUserRole);
-      if (roleLimit) {
-        const currentCount = roleCounts[newUserRole] || 0;
-        if (currentCount >= roleLimit.maxPerTeam) {
-          return NextResponse.json(
-            {
-              error: `Maximum ${roleLimit.maxPerTeam} ${newUserRole}(s) allowed per team`,
-            },
-            { status: 400 }
-          );
-        }
-      }
+    if (slotError) {
+      return NextResponse.json({ error: slotError }, { status: 400 });
     }
 
     // Update contest_users record with team assignment

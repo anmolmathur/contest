@@ -1,52 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, submissions, contestUsers, tracks } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { teams, submissions, contestUsers } from "@/lib/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
-
-interface ScoringCriterion {
-  name: string;
-  key: string;
-  weight: number;
-  description?: string;
-}
-
-interface PhaseConfigEntry {
-  phase: number;
-  name: string;
-  maxPoints: number;
-}
+import { teamPhaseScores, type ScoringCriterion } from "@/lib/scoring";
+import { resolveScale } from "@/lib/contest-config";
 
 interface Prize {
   rank: number;
   label: string;
   amount?: number | null;
   color: string;
-}
-
-function calculateWeightedScore(
-  criteriaScores: Record<string, number> | null | undefined,
-  scoringCriteria: ScoringCriterion[]
-): number {
-  if (!criteriaScores || scoringCriteria.length === 0) return 0;
-
-  let weightedSum = 0;
-  let totalWeight = 0;
-
-  for (const criterion of scoringCriteria) {
-    const scoreValue = criteriaScores[criterion.key];
-    if (scoreValue !== undefined && scoreValue !== null) {
-      weightedSum += scoreValue * criterion.weight;
-      totalWeight += criterion.weight;
-    }
-  }
-
-  if (totalWeight > 0 && totalWeight !== 1) {
-    return weightedSum / totalWeight;
-  }
-
-  return weightedSum;
 }
 
 export async function GET(
@@ -80,18 +45,8 @@ export async function GET(
     const limit = parseInt(searchParams.get("limit") || "5", 10);
 
     const scoringCriteria = (contest.scoringCriteria as ScoringCriterion[]) || [];
-    const phaseConfig = (contest.phaseConfig as PhaseConfigEntry[]) || [];
+    const scoringScale = resolveScale(contest.scoringScale);
     const prizes = (contest.prizes as Prize[]) || [];
-
-    // Build phase maxPoints lookup from contest config
-    const phaseMaxPoints: Record<number, number> = {};
-    const scorablePhases: number[] = [];
-    for (const pc of phaseConfig) {
-      if (pc.maxPoints > 0) {
-        phaseMaxPoints[pc.phase] = pc.maxPoints;
-        scorablePhases.push(pc.phase);
-      }
-    }
 
     // Get approved teams for THIS contest with contest-scoped members
     const approvedTeams = await db.query.teams.findMany({
@@ -122,51 +77,22 @@ export async function GET(
       },
     });
 
-    const leaderboardData = await Promise.all(
-      approvedTeams.map(async (team) => {
-        // Get all submissions for this team
-        const teamSubmissions = await db.query.submissions.findMany({
-          where: eq(submissions.teamId, team.id),
-          with: {
-            scores: true,
-          },
-        });
+    // One query for every approved team's submissions + scores.
+    const allSubmissions = approvedTeams.length
+      ? await db.query.submissions.findMany({
+          where: inArray(submissions.teamId, approvedTeams.map((t) => t.id)),
+          columns: { id: true, teamId: true, phase: true },
+          with: { scores: { columns: { criteriaScores: true } } },
+        })
+      : [];
 
-        // Calculate scores by phase using dynamic criteria
-        const phaseWeightedScores: Record<number, number> = {};
-
-        for (const submission of teamSubmissions) {
-          if (submission.scores.length === 0) continue;
-
-          const avgWeightedScore =
-            submission.scores.reduce((sum, score) => {
-              const criteriaScoresData = score.criteriaScores as Record<string, number> | null;
-              const weightedScore = calculateWeightedScore(criteriaScoresData, scoringCriteria);
-              return sum + weightedScore;
-            }, 0) / submission.scores.length;
-
-          if (
-            !phaseWeightedScores[submission.phase] ||
-            avgWeightedScore > phaseWeightedScores[submission.phase]
-          ) {
-            phaseWeightedScores[submission.phase] = avgWeightedScore;
-          }
-        }
-
-        // Scale phase scores to their maximum points
-        const phaseScores: Record<string, number> = {};
-        let totalScore = 0;
-
-        for (const phase of scorablePhases) {
-          const maxPoints = phaseMaxPoints[phase] || 0;
-          if (phaseWeightedScores[phase]) {
-            const scaledScore = (phaseWeightedScores[phase] / 100) * maxPoints;
-            phaseScores[`phase${phase}`] = scaledScore;
-            totalScore += scaledScore;
-          } else {
-            phaseScores[`phase${phase}`] = 0;
-          }
-        }
+    const leaderboardData = approvedTeams.map((team) => {
+        const { phaseScores, totalScore } = teamPhaseScores(
+          allSubmissions.filter((s) => s.teamId === team.id),
+          scoringCriteria,
+          contest.phaseConfig,
+          scoringScale,
+        );
 
         // Track name from the tracks table
         const trackName = team.trackRef?.name || team.track || "N/A";
@@ -186,8 +112,7 @@ export async function GET(
           phaseScores,
           totalScore,
         };
-      })
-    );
+      });
 
     // Sort by total score descending
     leaderboardData.sort((a, b) => b.totalScore - a.totalScore);

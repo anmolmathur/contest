@@ -13,6 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BarChart3, List, Crown } from "lucide-react";
+import { useOptionalContestConfig } from "@/lib/use-optional-contest";
+import { scorablePhases, type PhaseEntry } from "@/lib/scoring";
 
 interface PhaseScores {
   phase2?: number;
@@ -25,6 +27,8 @@ interface TeamMember {
   id: string;
   name: string | null;
   isLeader: boolean;
+  /** contest role; mentors advise but aren't team members on the board */
+  role?: string;
 }
 
 interface LeaderboardEntry {
@@ -39,10 +43,28 @@ interface LeaderboardEntry {
 
 interface LeaderboardProps {
   entries: LeaderboardEntry[];
+  /** Scorable phases/rounds to break down. Defaults to the current contest's config. */
+  phases?: PhaseEntry[];
+  title?: string;
 }
 
-export default function Leaderboard({ entries }: LeaderboardProps) {
+/** Legacy hackathon layout (P2 25 / P3 25 / P4 50) when no contest config is available. */
+const LEGACY_PHASES: PhaseEntry[] = [
+  { phase: 2, name: "Phase 2", maxPoints: 25 },
+  { phase: 3, name: "Phase 3", maxPoints: 25 },
+  { phase: 4, name: "Phase 4", maxPoints: 50 },
+];
+
+const PHASE_COLORS = ["text-neon-purple", "text-electric-blue", "text-hot-pink", "text-amber-400", "text-emerald-400"];
+
+export default function Leaderboard({ entries, phases: phasesProp, title }: LeaderboardProps) {
   const [viewMode, setViewMode] = useState<"cumulative" | "breakdown">("cumulative");
+  const { contest, t } = useOptionalContestConfig();
+  const configPhases = contest ? scorablePhases(contest.phaseConfig) : [];
+  const phases = phasesProp ?? (configPhases.length > 0 ? configPhases : LEGACY_PHASES);
+  const maxTotal = phases.reduce((sum, p) => sum + p.maxPoints, 0) || 100;
+  const abbr = t("phase").charAt(0).toUpperCase();
+  const fmtMax = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
   const sortedEntries = [...entries].sort((a, b) => b.totalScore - a.totalScore);
 
   const getRankColor = (index: number) => {
@@ -61,11 +83,11 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
 
   return (
     <GlassCard className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-3xl font-bold bg-gradient-to-r from-neon-purple to-electric-blue bg-clip-text text-transparent">
-          Live Leaderboard
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-neon-purple to-electric-blue bg-clip-text text-transparent">
+          {title ?? "Live Leaderboard"}
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             onClick={() => setViewMode("cumulative")}
             variant="outline"
@@ -90,19 +112,22 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
             }`}
           >
             <BarChart3 className="mr-2" size={16} />
-            Phase Breakdown
+            {t("phase")} Breakdown
           </Button>
         </div>
       </div>
 
       {/* Phase Legend for Breakdown View */}
       {viewMode === "breakdown" && (
-        <div className="flex items-center gap-4 mb-4 text-sm">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-4 text-sm">
           <span className="text-gray-400">Max Points:</span>
-          <span className="text-neon-purple">P2: 25 pts</span>
-          <span className="text-electric-blue">P3: 25 pts</span>
-          <span className="text-hot-pink">P4: 50 pts</span>
-          <span className="text-white font-semibold">Total: 100 pts</span>
+          {phases.map((p, i) => (
+            <span key={p.phase} className={PHASE_COLORS[i % PHASE_COLORS.length]} title={p.name}>
+              {abbr}
+              {p.phase}: {fmtMax(p.maxPoints)} pts
+            </span>
+          ))}
+          <span className="text-white font-semibold">Total: {fmtMax(maxTotal)} pts</span>
         </div>
       )}
 
@@ -111,17 +136,17 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
           <TableHeader>
             <TableRow className="border-white/10">
               <TableHead className="text-gray-400">Rank</TableHead>
-              <TableHead className="text-gray-400">Team Name</TableHead>
-              <TableHead className="text-gray-400">Team Members</TableHead>
-              <TableHead className="text-gray-400">Track</TableHead>
-              {viewMode === "breakdown" && (
-                <>
-                  <TableHead className="text-gray-400 text-center">P2 (25)</TableHead>
-                  <TableHead className="text-gray-400 text-center">P3 (25)</TableHead>
-                  <TableHead className="text-gray-400 text-center">P4 (50)</TableHead>
-                </>
-              )}
-              <TableHead className="text-gray-400 text-right">Total (100)</TableHead>
+              <TableHead className="text-gray-400">{t("team")} Name</TableHead>
+              <TableHead className="text-gray-400">{t("team")} Members</TableHead>
+              <TableHead className="text-gray-400">{t("track")}</TableHead>
+              {viewMode === "breakdown" &&
+                phases.map((p) => (
+                  <TableHead key={p.phase} className="text-gray-400 text-center" title={p.name}>
+                    {abbr}
+                    {p.phase} ({fmtMax(p.maxPoints)})
+                  </TableHead>
+                ))}
+              <TableHead className="text-gray-400 text-right">Total ({fmtMax(maxTotal)})</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -144,8 +169,8 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1 max-w-xs">
-                      {entry.members && entry.members.length > 0 ? (
-                        entry.members.map((member) => (
+                      {entry.members && entry.members.some((m) => m.role !== "mentor") ? (
+                        entry.members.filter((m) => m.role !== "mentor").map((member) => (
                           <span
                             key={member.id}
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
@@ -164,31 +189,17 @@ export default function Leaderboard({ entries }: LeaderboardProps) {
                     </div>
                   </TableCell>
                   <TableCell className="text-gray-400">{entry.track}</TableCell>
-                  {viewMode === "breakdown" && (
-                    <>
-                      <TableCell className="text-center">
-                        <span className="text-neon-purple font-semibold">
-                          {typeof entry.phaseScores?.phase2 === "number"
-                            ? entry.phaseScores.phase2.toFixed(1)
-                            : "-"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <span className="text-electric-blue font-semibold">
-                          {typeof entry.phaseScores?.phase3 === "number"
-                            ? entry.phaseScores.phase3.toFixed(1)
-                            : "-"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <span className="text-hot-pink font-semibold">
-                          {typeof entry.phaseScores?.phase4 === "number"
-                            ? entry.phaseScores.phase4.toFixed(1)
-                            : "-"}
-                        </span>
-                      </TableCell>
-                    </>
-                  )}
+                  {viewMode === "breakdown" &&
+                    phases.map((p, i) => {
+                      const v = entry.phaseScores?.[`phase${p.phase}`];
+                      return (
+                        <TableCell key={p.phase} className="text-center">
+                          <span className={`${PHASE_COLORS[i % PHASE_COLORS.length]} font-semibold`}>
+                            {typeof v === "number" ? v.toFixed(1) : "-"}
+                          </span>
+                        </TableCell>
+                      );
+                    })}
                   <TableCell className="text-right">
                     <span className="text-2xl font-bold bg-gradient-to-r from-neon-purple to-electric-blue bg-clip-text text-transparent">
                       {(entry.totalScore ?? 0).toFixed(2)}

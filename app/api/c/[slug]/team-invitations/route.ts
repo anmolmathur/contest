@@ -5,6 +5,7 @@ import { teams, teamInvitations, contestUsers, users } from "@/lib/db/schema";
 import { eq, and, or } from "drizzle-orm";
 import { resolveContest } from "@/lib/contest-auth";
 import { dispatchTeamInvite } from "@/lib/notifications/dispatch";
+import { checkTeamSlot } from "@/lib/team-capacity";
 
 export async function GET(
   _req: NextRequest,
@@ -88,6 +89,24 @@ export async function POST(
   });
   if (cu?.teamId) {
     return NextResponse.json({ error: "User is already on a team in this contest" }, { status: 400 });
+  }
+  if (cu?.role === "mentor") {
+    return NextResponse.json(
+      { error: "Mentors are attached to teams by the organisers, not via invitations" },
+      { status: 400 }
+    );
+  }
+
+  // Fail early if the team is already full / the role is capped (re-checked on accept).
+  const slotError = await checkTeamSlot({
+    contest,
+    teamId,
+    userId: inviteeUserId,
+    participantRole: cu?.participantRole ?? null,
+    mode: "join",
+  });
+  if (slotError) {
+    return NextResponse.json({ error: slotError }, { status: 400 });
   }
 
   const [row] = await db

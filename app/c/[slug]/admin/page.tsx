@@ -1,7 +1,8 @@
 "use client";
 
-import { useContest } from "@/lib/contest-context";
+import { useContest, useContestConfig } from "@/lib/contest-context";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -45,14 +46,11 @@ import {
   Home,
   Eye,
   Send,
-  Key,
-  ExternalLink,
   Crown,
   FileText,
   Settings,
   Loader2,
   ShieldAlert,
-  GripVertical,
   ArrowUp,
   ArrowDown,
   Gavel,
@@ -63,6 +61,31 @@ import {
 } from "lucide-react";
 import CertificateTab from "@/components/certificates/CertificateTab";
 import type { ScoringCriterion, PhaseConfig, Prize, RoleConfig } from "@/lib/contest-context";
+import type { ContestType, SubmissionValues } from "@/lib/contest-config";
+import { getPreset } from "@/lib/contest-types";
+import { submissionValues } from "@/lib/submission-fields";
+import { SubmissionView } from "@/components/submissions/SubmissionView";
+import type { ContestDraft } from "@/components/admin/AiContestSetup";
+import {
+  extendedPayload,
+  initExtendedConfig,
+  mergeExtendedPatch,
+  mergeSettings,
+  validateExtendedConfig,
+  type ExtendedConfigForm,
+} from "@/components/admin/contest-config-form";
+import { ContestTypeCard } from "@/components/admin/ContestTypeCard";
+import { AiAssistPanel } from "@/components/admin/AiAssistPanel";
+import { ContestDetailsFields } from "@/components/admin/ContestDetailsFields";
+import { SubmissionFieldsEditor } from "@/components/admin/SubmissionFieldsEditor";
+import { ScoringScaleEditor } from "@/components/admin/ScoringScaleEditor";
+import { TerminologyEditor } from "@/components/admin/TerminologyEditor";
+import { ContestSettingsFlags } from "@/components/admin/ContestSettingsFlags";
+import { SpeakersEditor } from "@/components/admin/SpeakersEditor";
+import { AgendaEditor } from "@/components/admin/AgendaEditor";
+import { FaqEditor } from "@/components/admin/FaqEditor";
+import { CustomDomainCard } from "@/components/admin/CustomDomainCard";
+import { ResultsPublishCard } from "@/components/admin/ResultsPublishCard";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,8 +122,15 @@ interface Team {
   trackName: string | null;
   approved: boolean;
   leaderId: string | null;
-  members: any[];
-  submissions?: any[];
+  members: TeamMember[];
+  submissions?: unknown[];
+}
+
+interface TeamMember {
+  id: string;
+  name: string | null;
+  email: string;
+  role?: string | null;
 }
 
 interface Track {
@@ -122,6 +152,8 @@ interface Score {
   phase: number;
   criteriaScores: Record<string, number> | null;
   weightedScore: string;
+  feedback?: string | null;
+  privateNote?: string | null;
 }
 
 interface Submission {
@@ -130,12 +162,16 @@ interface Submission {
   teamName: string;
   track: string | null;
   phase: number;
-  githubUrl: string;
-  demoUrl: string;
+  githubUrl: string | null;
+  demoUrl: string | null;
   submissionDescription: string | null;
-  aiPromptsUsed: string;
-  aiToolsUtilized: string;
-  aiScreenshots: string[];
+  aiPromptsUsed: string | null;
+  aiToolsUtilized: string | null;
+  aiScreenshots: string[] | null;
+  /** Generic values as stored (jsonb) */
+  fields?: SubmissionValues | null;
+  /** `fields` merged with legacy columns (server-computed) */
+  values?: SubmissionValues;
   submittedAt: string;
   updatedAt: string;
   wasEdited: boolean;
@@ -155,17 +191,28 @@ type TabType =
   | "certificates"
   | "settings";
 
+const TAB_IDS: TabType[] = ["summary", "users", "judges", "tracks", "teams", "submissions", "scores", "certificates", "settings"];
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function ContestAdminPage() {
   const { contest } = useContest();
+  const { t, tp, submissionFields: resolvedFields } = useContestConfig();
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const isPlatformAdminViewer = session?.user?.globalRole === "platform_admin";
 
   const slug = contest.slug;
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("summary");
+
+  // Deep link: /c/<slug>/admin?tab=settings (e.g. right after "Create with AI").
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab") as TabType | null;
+    if (tab && TAB_IDS.includes(tab)) setActiveTab(tab);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -214,16 +261,32 @@ export default function ContestAdminPage() {
     maxTeamMembers: contest.maxTeamMembers,
     registrationDeadline: contest.registrationDeadline ? contest.registrationDeadline.slice(0, 16) : "",
   });
+  // Legacy contests may have null jsonb columns — fall back to the type preset
+  // (what the engine uses at runtime) instead of saving empty arrays.
+  const typePreset = getPreset(contest.contestType);
   const [scoringCriteriaForm, setScoringCriteriaForm] = useState<ScoringCriterion[]>(
-    contest.scoringCriteria || []
+    contest.scoringCriteria ?? typePreset.scoringCriteria
   );
   const [phaseConfigForm, setPhaseConfigForm] = useState<PhaseConfig[]>(
-    contest.phaseConfig || []
+    contest.phaseConfig ?? typePreset.phaseConfig
   );
-  const [prizesForm, setPrizesForm] = useState<Prize[]>(contest.prizes || []);
+  const [prizesForm, setPrizesForm] = useState<Prize[]>(contest.prizes ?? typePreset.prizes);
   const [roleConfigForm, setRoleConfigForm] = useState<RoleConfig[]>(
-    contest.roleConfig || []
+    contest.roleConfig ?? typePreset.roleConfig
   );
+  // Generic engine config (type, fields, scale, vocabulary, flags, agenda, speakers, FAQ…)
+  const [extForm, setExtForm] = useState<ExtendedConfigForm>(() => initExtendedConfig(contest));
+  const [savedScale, setSavedScale] = useState(extForm.scoringScale);
+  const [domainInfo, setDomainInfo] = useState<{ domain: string | null; verifiedAt: string | null }>({
+    domain: contest.customDomain,
+    verifiedAt: null,
+  });
+  const [aiApplied, setAiApplied] = useState<string | null>(null);
+  // Visibility / support email only come from the full contest row; never
+  // overwrite them with form defaults if that fetch failed.
+  const [fullContestLoaded, setFullContestLoaded] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const patchExt = (patch: Partial<ExtendedConfigForm>) => setExtForm((f) => ({ ...f, ...patch }));
 
   // -----------------------------------------------------------------------
   // Access check
@@ -278,7 +341,12 @@ export default function ContestAdminPage() {
     try {
       const res = await fetch(`/api/c/${slug}/teams/all`);
       const data = await res.json();
-      setTeams((data.teams || []).map((t: any) => ({ ...t, trackName: t.trackRef?.name || null })));
+      setTeams(
+        ((data.teams || []) as Array<Team & { trackRef?: { name?: string } | null }>).map((tm) => ({
+          ...tm,
+          trackName: tm.trackRef?.name || null,
+        })),
+      );
     } catch (err) {
       console.error("Error loading teams:", err);
     }
@@ -326,6 +394,25 @@ export default function ContestAdminPage() {
     }
   }, []);
 
+  // Full contest row: carries fields the client context doesn't (visibility,
+  // supportEmail, unverified custom domain).
+  const loadFullContest = useCallback(async (initForm: boolean) => {
+    try {
+      const res = await fetch(`/api/contests/${slug}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setDomainInfo({ domain: data.customDomain ?? null, verifiedAt: data.customDomainVerifiedAt ?? null });
+      if (initForm) {
+        const fresh = initExtendedConfig(data);
+        setExtForm(fresh);
+        setSavedScale(fresh.scoringScale);
+        setFullContestLoaded(true);
+      }
+    } catch (err) {
+      console.error("Error loading contest:", err);
+    }
+  }, [slug]);
+
   const loadAllData = useCallback(async () => {
     setLoading(true);
     await Promise.all([
@@ -334,9 +421,10 @@ export default function ContestAdminPage() {
       loadTracks(),
       loadScores(),
       loadSubmissions(),
+      loadFullContest(true),
     ]);
     setLoading(false);
-  }, [loadContestUsers, loadTeams, loadTracks, loadScores, loadSubmissions]);
+  }, [loadContestUsers, loadTeams, loadTracks, loadScores, loadSubmissions, loadFullContest]);
 
   // -----------------------------------------------------------------------
   // Effects
@@ -630,7 +718,18 @@ export default function ContestAdminPage() {
   const handleSaveSettings = async () => {
     setError("");
     setSuccess("");
+    const problems = validateExtendedConfig(extForm);
+    if (problems.length > 0) {
+      setError(problems.slice(0, 4).join(" · ") + (problems.length > 4 ? ` (+${problems.length - 4} more)` : ""));
+      return;
+    }
+    setSavingSettings(true);
     try {
+      const ext = extendedPayload(extForm);
+      if (!fullContestLoaded) {
+        delete ext.visibility;
+        delete ext.supportEmail;
+      }
       const res = await fetch(`/api/contests/${slug}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -641,6 +740,7 @@ export default function ContestAdminPage() {
           phaseConfig: phaseConfigForm,
           prizes: prizesForm,
           roleConfig: roleConfigForm,
+          ...ext,
         }),
       });
       const data = await res.json();
@@ -648,10 +748,85 @@ export default function ContestAdminPage() {
         setError(data.error || "Failed to save settings");
         return;
       }
-      setSuccess("Contest settings saved. Reload the page to see changes.");
+      setSavedScale(extForm.scoringScale);
+      setSuccess("Contest settings saved.");
+      if (data.slug && data.slug !== slug) {
+        router.push(`/c/${data.slug}/admin?tab=settings`);
+      } else {
+        // Re-render the server layout so the contest context picks up the changes.
+        router.refresh();
+      }
     } catch {
       setError("Failed to save settings");
+    } finally {
+      setSavingSettings(false);
     }
+  };
+
+  // Overwrite type-driven config with the preset (tracks untouched, not saved yet).
+  const handleApplyPreset = (type: ContestType) => {
+    const p = getPreset(type);
+    const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+    setScoringCriteriaForm(clone(p.scoringCriteria));
+    setPhaseConfigForm(clone(p.phaseConfig));
+    setRoleConfigForm(clone(p.roleConfig));
+    setExtForm((f) => ({
+      ...f,
+      contestType: type,
+      submissionFields: clone(p.submissionFields),
+      scoringScale: clone(p.scoringScale),
+      terminology: { ...p.terminology },
+      settings: {
+        ...f.settings,
+        ...mergeSettings(p.settings),
+        theme: p.settings.theme ?? "",
+        resultsPublished: f.settings.resultsPublished,
+      },
+    }));
+    setSuccess(`${p.label} preset applied to the form — review and click Save to keep it.`);
+  };
+
+  // Merge an AI-assistant patch into the form state (admin reviews, then saves).
+  const handleAiPatch = (patch: ContestDraft) => {
+    const applied: string[] = [];
+    const p = patch as Record<string, unknown>;
+    const basicKeys = ["name", "description", "heroTitle", "heroSubtitle", "rulesContent"] as const;
+    const nextBasic = { ...settingsForm };
+    for (const k of basicKeys) {
+      if (typeof p[k] === "string") {
+        nextBasic[k] = p[k] as string;
+        applied.push(k);
+      }
+    }
+    for (const k of ["maxTeams", "maxApprovedTeams", "maxTeamMembers"] as const) {
+      if (typeof p[k] === "number") {
+        nextBasic[k] = p[k] as number;
+        applied.push(k);
+      }
+    }
+    if (typeof p.registrationDeadline === "string") {
+      // AI drafts send yyyy-mm-dd; datetime-local needs a time → end of that day.
+      nextBasic.registrationDeadline = /^\d{4}-\d{2}-\d{2}$/.test(p.registrationDeadline)
+        ? `${p.registrationDeadline}T23:59`
+        : p.registrationDeadline.slice(0, 16);
+      applied.push("registrationDeadline");
+    }
+    setSettingsForm(nextBasic);
+    if (Array.isArray(p.scoringCriteria)) { setScoringCriteriaForm(p.scoringCriteria as ScoringCriterion[]); applied.push("scoringCriteria"); }
+    if (Array.isArray(p.phaseConfig)) { setPhaseConfigForm(p.phaseConfig as PhaseConfig[]); applied.push("phaseConfig"); }
+    if (Array.isArray(p.prizes)) { setPrizesForm(p.prizes as Prize[]); applied.push("prizes"); }
+    if (Array.isArray(p.roleConfig)) { setRoleConfigForm(p.roleConfig as RoleConfig[]); applied.push("roleConfig"); }
+    const merged = mergeExtendedPatch(extForm, p);
+    setExtForm(merged.form);
+    applied.push(...merged.applied);
+    const trackNote = Array.isArray(p.tracks) && p.tracks.length > 0
+      ? ` It also suggested ${p.tracks.length} ${tp("track").toLowerCase()} — add those in the ${tp("track")} tab.`
+      : "";
+    setAiApplied(
+      applied.length > 0
+        ? `Applied to the form: ${applied.join(", ")}. Review and click Save.${trackNote}`
+        : `No editable settings in the suggestion.${trackNote}`,
+    );
   };
 
   // Scoring criteria helpers
@@ -666,7 +841,7 @@ export default function ContestAdminPage() {
   };
   const updateScoringCriterion = (index: number, field: string, value: string | number) => {
     const updated = [...scoringCriteriaForm];
-    (updated[index] as any)[field] = value;
+    (updated[index] as unknown as Record<string, unknown>)[field] = value;
     setScoringCriteriaForm(updated);
   };
   const moveScoringCriterion = (index: number, direction: "up" | "down") => {
@@ -688,9 +863,9 @@ export default function ContestAdminPage() {
   const removePhaseConfig = (index: number) => {
     setPhaseConfigForm(phaseConfigForm.filter((_, i) => i !== index));
   };
-  const updatePhaseConfig = (index: number, field: string, value: any) => {
+  const updatePhaseConfig = (index: number, field: string, value: unknown) => {
     const updated = [...phaseConfigForm];
-    (updated[index] as any)[field] = value;
+    (updated[index] as unknown as Record<string, unknown>)[field] = value;
     setPhaseConfigForm(updated);
   };
 
@@ -740,9 +915,9 @@ export default function ContestAdminPage() {
   const removePrize = (index: number) => {
     setPrizesForm(prizesForm.filter((_, i) => i !== index));
   };
-  const updatePrize = (index: number, field: string, value: any) => {
+  const updatePrize = (index: number, field: string, value: unknown) => {
     const updated = [...prizesForm];
-    (updated[index] as any)[field] = value;
+    (updated[index] as unknown as Record<string, unknown>)[field] = value;
     setPrizesForm(updated);
   };
 
@@ -753,9 +928,9 @@ export default function ContestAdminPage() {
   const removeRoleConfig = (index: number) => {
     setRoleConfigForm(roleConfigForm.filter((_, i) => i !== index));
   };
-  const updateRoleConfig = (index: number, field: string, value: any) => {
+  const updateRoleConfig = (index: number, field: string, value: unknown) => {
     const updated = [...roleConfigForm];
-    (updated[index] as any)[field] = value;
+    (updated[index] as unknown as Record<string, unknown>)[field] = value;
     setRoleConfigForm(updated);
   };
 
@@ -845,13 +1020,13 @@ export default function ContestAdminPage() {
   // -----------------------------------------------------------------------
   // Tabs config
   // -----------------------------------------------------------------------
-  const tabs: { id: TabType; label: string; icon: any }[] = [
+  const tabs: { id: TabType; label: string; icon: typeof Users }[] = [
     { id: "summary", label: "Summary", icon: BarChart3 },
     { id: "users", label: "Users", icon: Users },
-    { id: "judges", label: "Judges", icon: Gavel },
-    { id: "tracks", label: "Tracks", icon: Layers },
-    { id: "teams", label: "Teams", icon: UsersRound },
-    { id: "submissions", label: "Submissions", icon: Send },
+    { id: "judges", label: tp("judge"), icon: Gavel },
+    { id: "tracks", label: tp("track"), icon: Layers },
+    { id: "teams", label: tp("team"), icon: UsersRound },
+    { id: "submissions", label: tp("submission"), icon: Send },
     { id: "scores", label: "Scores", icon: Award },
     { id: "certificates", label: "Certificates", icon: FileText },
     { id: "settings", label: "Settings", icon: Settings },
@@ -861,7 +1036,7 @@ export default function ContestAdminPage() {
   // Main render
   // -----------------------------------------------------------------------
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-4 sm:p-8">
       <BackgroundPattern />
 
       <div className="max-w-7xl mx-auto relative">
@@ -873,7 +1048,7 @@ export default function ContestAdminPage() {
           {/* Header */}
           <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
             <div>
-              <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
                 Admin Panel
               </h1>
               <p className="text-gray-400 text-sm mt-1">{contest.name}</p>
@@ -929,7 +1104,21 @@ export default function ContestAdminPage() {
           {/* SUMMARY TAB                                                    */}
           {/* ============================================================= */}
           {activeTab === "summary" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <div className="space-y-6">
+            <ResultsPublishCard
+              slug={slug}
+              published={!!extForm.settings.resultsPublished}
+              feedbackVisibility={extForm.settings.feedbackVisibility}
+              judgeTerm={t("judge")}
+              onChange={(published) => {
+                setExtForm((f) => ({ ...f, settings: { ...f.settings, resultsPublished: published } }));
+                setError("");
+                setSuccess(published ? "Results published — teams are being notified." : "Results unpublished.");
+                router.refresh();
+              }}
+              onError={(msg) => { setSuccess(""); setError(msg); }}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               <GlassCard className="p-6">
                 <div className="flex items-center gap-4 mb-4">
                   <Users className="text-neon-purple" size={32} />
@@ -938,7 +1127,7 @@ export default function ContestAdminPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-gray-400"><span>Total:</span><span className="text-white font-semibold">{stats.totalUsers}</span></div>
                   <div className="flex justify-between text-gray-400"><span>Participants:</span><span className="text-green-400 font-semibold">{stats.participants}</span></div>
-                  <div className="flex justify-between text-gray-400"><span>Judges:</span><span className="text-electric-blue font-semibold">{stats.judges}</span></div>
+                  <div className="flex justify-between text-gray-400"><span>{tp("judge")}:</span><span className="text-electric-blue font-semibold">{stats.judges}</span></div>
                   <div className="flex justify-between text-gray-400"><span>Admins:</span><span className="text-hot-pink font-semibold">{stats.admins}</span></div>
                 </div>
               </GlassCard>
@@ -946,7 +1135,7 @@ export default function ContestAdminPage() {
               <GlassCard className="p-6">
                 <div className="flex items-center gap-4 mb-4">
                   <UsersRound className="text-electric-blue" size={32} />
-                  <h3 className="text-2xl font-bold text-white">Teams</h3>
+                  <h3 className="text-2xl font-bold text-white">{tp("team")}</h3>
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between text-gray-400"><span>Total:</span><span className="text-white font-semibold">{stats.totalTeams}</span></div>
@@ -958,7 +1147,7 @@ export default function ContestAdminPage() {
               <GlassCard className="p-6">
                 <div className="flex items-center gap-4 mb-4">
                   <Send className="text-hot-pink" size={32} />
-                  <h3 className="text-2xl font-bold text-white">Submissions</h3>
+                  <h3 className="text-2xl font-bold text-white">{tp("submission")}</h3>
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between text-gray-400"><span>Total:</span><span className="text-white font-semibold">{stats.totalSubmissions}</span></div>
@@ -972,9 +1161,10 @@ export default function ContestAdminPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between text-gray-400"><span>Total:</span><span className="text-white font-semibold">{stats.totalScores}</span></div>
-                  <div className="flex justify-between text-gray-400"><span>Tracks:</span><span className="text-electric-blue font-semibold">{stats.totalTracks}</span></div>
+                  <div className="flex justify-between text-gray-400"><span>{tp("track")}:</span><span className="text-electric-blue font-semibold">{stats.totalTracks}</span></div>
                 </div>
               </GlassCard>
+            </div>
             </div>
           )}
 
@@ -1051,10 +1241,10 @@ export default function ContestAdminPage() {
           {activeTab === "judges" && (
             <GlassCard className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-white">Judges</h3>
+                <h3 className="text-2xl font-bold text-white">{tp("judge")}</h3>
               </div>
               {contestUsers.filter((cu) => cu.role === "judge" || cu.role === "admin").length === 0 ? (
-                <p className="text-gray-400 text-center py-12">No judges assigned to this contest. Go to Users tab to add judges.</p>
+                <p className="text-gray-400 text-center py-12">No {tp("judge").toLowerCase()} assigned to this contest. Go to the Users tab to add them.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
@@ -1092,14 +1282,14 @@ export default function ContestAdminPage() {
           {activeTab === "tracks" && (
             <GlassCard className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-white">Tracks</h3>
+                <h3 className="text-2xl font-bold text-white">{tp("track")}</h3>
                 <Button onClick={openCreateTrack} className="bg-gradient-to-r from-neon-purple to-electric-blue">
                   <Plus className="mr-2" size={18} />
-                  Add Track
+                  Add {t("track")}
                 </Button>
               </div>
               {tracks.length === 0 ? (
-                <p className="text-gray-400 text-center py-12">No tracks created yet.</p>
+                <p className="text-gray-400 text-center py-12">No {tp("track").toLowerCase()} created yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
@@ -1179,8 +1369,8 @@ export default function ContestAdminPage() {
                     <TableHeader>
                       <TableRow className="border-white/10">
                         <TableHead className="text-gray-400">Name</TableHead>
-                        <TableHead className="text-gray-400">Track</TableHead>
-                        <TableHead className="text-gray-400">Members</TableHead>
+                        <TableHead className="text-gray-400">{t("track")}</TableHead>
+                        <TableHead className="text-gray-400">{tp("member")}</TableHead>
                         <TableHead className="text-gray-400">Status</TableHead>
                         <TableHead className="text-gray-400 text-right">Actions</TableHead>
                       </TableRow>
@@ -1234,17 +1424,17 @@ export default function ContestAdminPage() {
           {activeTab === "submissions" && (
             <GlassCard className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-white">Submissions</h3>
+                <h3 className="text-2xl font-bold text-white">{tp("submission")}</h3>
               </div>
               {submissions.length === 0 ? (
-                <p className="text-gray-400 text-center py-12">No submissions yet.</p>
+                <p className="text-gray-400 text-center py-12">No {tp("submission").toLowerCase()} yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-white/10">
-                        <TableHead className="text-gray-400">Team</TableHead>
-                        <TableHead className="text-gray-400">Phase</TableHead>
+                        <TableHead className="text-gray-400">{t("team")}</TableHead>
+                        <TableHead className="text-gray-400">{t("phase")}</TableHead>
                         <TableHead className="text-gray-400">Submitted</TableHead>
                         <TableHead className="text-gray-400">Scores</TableHead>
                         <TableHead className="text-gray-400 text-right">Actions</TableHead>
@@ -1254,7 +1444,7 @@ export default function ContestAdminPage() {
                       {submissions.map((sub) => (
                         <TableRow key={sub.id} className="border-white/10">
                           <TableCell className="text-white font-semibold">{sub.teamName}</TableCell>
-                          <TableCell className="text-gray-400">Phase {sub.phase}</TableCell>
+                          <TableCell className="text-gray-400">{t("phase")} {sub.phase}</TableCell>
                           <TableCell className="text-gray-400">
                             {new Date(sub.submittedAt).toLocaleDateString()}
                             {sub.wasEdited && <span className="block text-xs text-amber-400">Edited</span>}
@@ -1305,10 +1495,11 @@ export default function ContestAdminPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="border-white/10">
-                        <TableHead className="text-gray-400">Team</TableHead>
-                        <TableHead className="text-gray-400">Phase</TableHead>
-                        <TableHead className="text-gray-400">Judge</TableHead>
+                        <TableHead className="text-gray-400">{t("team")}</TableHead>
+                        <TableHead className="text-gray-400">{t("phase")}</TableHead>
+                        <TableHead className="text-gray-400">{t("judge")}</TableHead>
                         <TableHead className="text-gray-400 text-center">Weighted</TableHead>
+                        <TableHead className="text-gray-400 min-w-[200px]">Feedback</TableHead>
                         <TableHead className="text-gray-400 text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1316,12 +1507,24 @@ export default function ContestAdminPage() {
                       {scores.map((score) => (
                         <TableRow key={score.id} className="border-white/10">
                           <TableCell className="text-white font-semibold">{score.teamName}</TableCell>
-                          <TableCell className="text-gray-400">Phase {score.phase}</TableCell>
+                          <TableCell className="text-gray-400">{t("phase")} {score.phase}</TableCell>
                           <TableCell className="text-gray-400">{score.judgeName}</TableCell>
                           <TableCell className="text-center">
                             <span className="font-bold bg-gradient-to-r from-neon-purple to-electric-blue bg-clip-text text-transparent">
                               {score.weightedScore}
                             </span>
+                          </TableCell>
+                          <TableCell className="text-sm max-w-sm whitespace-normal">
+                            {score.feedback ? (
+                              <p className="text-gray-300 whitespace-pre-wrap line-clamp-3" title={score.feedback}>{score.feedback}</p>
+                            ) : (
+                              <span className="text-gray-600">—</span>
+                            )}
+                            {score.privateNote && (
+                              <p className="mt-1 text-xs italic text-gray-500 line-clamp-2" title={score.privateNote}>
+                                Private: {score.privateNote}
+                              </p>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">
                             <Button onClick={() => handleDeleteScore(score.id)} variant="ghost" size="sm" className="text-red-400 hover:bg-red-500/10">
@@ -1349,8 +1552,17 @@ export default function ContestAdminPage() {
           {/* ============================================================= */}
           {activeTab === "settings" && (
             <div className="space-y-6">
+              <AiAssistPanel slug={slug} onApply={handleAiPatch} lastApplied={aiApplied} />
+
+              <ContestTypeCard
+                value={extForm.contestType}
+                onChange={(contestType) => patchExt({ contestType })}
+                onApplyPreset={handleApplyPreset}
+                hasScores={scores.length > 0}
+              />
+
               {/* Basic Info */}
-              <GlassCard className="p-6">
+              <GlassCard className="p-4 sm:p-6">
                 <h3 className="text-2xl font-bold text-white mb-6">Contest Settings</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -1404,6 +1616,13 @@ export default function ContestAdminPage() {
                   </div>
                 </div>
               </GlassCard>
+
+              <ContestDetailsFields
+                value={extForm}
+                onChange={patchExt}
+                ctaPlaceholder={getPreset(extForm.contestType).heroCtaText}
+                rulesPlaceholders={getPreset(extForm.contestType).rules}
+              />
 
               {/* Rules */}
               <GlassCard className="p-6">
@@ -1483,6 +1702,14 @@ export default function ContestAdminPage() {
                   )}
                 </div>
               </GlassCard>
+
+              <ScoringScaleEditor
+                value={extForm.scoringScale}
+                onChange={(scoringScale) => patchExt({ scoringScale })}
+                original={savedScale}
+                hasScores={scores.length > 0}
+                judgeTerm={t("judge")}
+              />
 
               {/* Phase Config Editor */}
               <GlassCard className="p-6">
@@ -1577,6 +1804,17 @@ export default function ContestAdminPage() {
                 </div>
               </GlassCard>
 
+              <SubmissionFieldsEditor
+                value={extForm.submissionFields}
+                onChange={(submissionFields) => patchExt({ submissionFields })}
+                phases={(phaseConfigForm.some((ph) => ph.maxPoints > 0)
+                  ? phaseConfigForm.filter((ph) => ph.maxPoints > 0)
+                  : phaseConfigForm
+                ).map((ph) => ({ phase: ph.phase, name: ph.name }))}
+                phaseTerm={t("phase")}
+                submissionTerm={t("submission")}
+              />
+
               {/* Prize Editor */}
               <GlassCard className="p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -1658,10 +1896,60 @@ export default function ContestAdminPage() {
                 </div>
               </GlassCard>
 
+              <TerminologyEditor
+                value={extForm.terminology}
+                onChange={(terminology) => patchExt({ terminology })}
+                presetTerms={getPreset(extForm.contestType).terminology}
+              />
+
+              <ContestSettingsFlags
+                settings={extForm.settings}
+                onSettingsChange={(settings) => patchExt({ settings })}
+                visibility={extForm.visibility}
+                onVisibilityChange={(visibility) => patchExt({ visibility })}
+                supportEmail={extForm.supportEmail}
+                onSupportEmailChange={(supportEmail) => patchExt({ supportEmail })}
+                trackTerm={t("track")}
+                judgeTerm={t("judge")}
+              />
+
+              <SpeakersEditor
+                value={extForm.speakers}
+                contestId={contest.id}
+                onChange={(speakers) => {
+                  // Drop agenda links to people that were removed.
+                  const ids = new Set(speakers.map((sp) => sp.id));
+                  setExtForm((f) => ({
+                    ...f,
+                    speakers,
+                    agenda: f.agenda.map((a) =>
+                      a.speakerIds?.some((id) => !ids.has(id)) ? { ...a, speakerIds: a.speakerIds.filter((id) => ids.has(id)) } : a,
+                    ),
+                  }));
+                }}
+              />
+
+              <AgendaEditor
+                value={extForm.agenda}
+                onChange={(agenda) => patchExt({ agenda })}
+                speakers={extForm.speakers}
+                defaultDay={extForm.startDate ? extForm.startDate.slice(0, 10) : undefined}
+              />
+
+              <FaqEditor value={extForm.faqConfig} onChange={(faqConfig) => patchExt({ faqConfig })} />
+
+              <CustomDomainCard
+                slug={slug}
+                domain={domainInfo.domain}
+                verifiedAt={domainInfo.verifiedAt}
+                isPlatformAdmin={isPlatformAdminViewer}
+                onChanged={() => { loadFullContest(false); router.refresh(); }}
+              />
+
               {/* Save button */}
-              <div className="flex justify-end">
-                <GlowButton onClick={handleSaveSettings}>
-                  Save All Settings
+              <div className="sticky bottom-4 z-10 flex justify-end">
+                <GlowButton onClick={handleSaveSettings} disabled={savingSettings}>
+                  {savingSettings ? "Saving…" : "Save All Settings"}
                 </GlowButton>
               </div>
             </div>
@@ -1789,13 +2077,13 @@ export default function ContestAdminPage() {
         <DialogContent className="bg-[#0a0a0a] border-white/10">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-white">
-              {editingTrack ? "Edit Track" : "Create Track"}
+              {editingTrack ? `Edit ${t("track")}` : `Create ${t("track")}`}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-4">
             <div>
-              <Label className="text-gray-200">Track Name</Label>
-              <Input value={trackForm.name} onChange={(e) => setTrackForm({ ...trackForm, name: e.target.value })} placeholder="e.g. AI Innovation" className="bg-white/5 border-white/10 text-white" />
+              <Label className="text-gray-200">{t("track")} Name</Label>
+              <Input value={trackForm.name} onChange={(e) => setTrackForm({ ...trackForm, name: e.target.value })} placeholder="e.g. Sustainability & ESG" className="bg-white/5 border-white/10 text-white" />
             </div>
             <div>
               <Label className="text-gray-200">Description</Label>
@@ -1806,7 +2094,7 @@ export default function ContestAdminPage() {
               <Input value={trackForm.icon} onChange={(e) => setTrackForm({ ...trackForm, icon: e.target.value })} placeholder="e.g. brain" className="bg-white/5 border-white/10 text-white" />
             </div>
             <Button onClick={handleSaveTrack} className="w-full bg-gradient-to-r from-neon-purple to-electric-blue">
-              {editingTrack ? "Save Changes" : "Create Track"}
+              {editingTrack ? "Save Changes" : `Create ${t("track")}`}
             </Button>
           </div>
         </DialogContent>
@@ -1814,39 +2102,27 @@ export default function ContestAdminPage() {
 
       {/* View Submission Dialog */}
       <Dialog open={viewSubmissionOpen} onOpenChange={setViewSubmissionOpen}>
-        <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-white">Submission Details</DialogTitle>
+            <DialogTitle className="text-2xl font-bold text-white">{t("submission")} Details</DialogTitle>
           </DialogHeader>
           {viewingSubmission && (
             <div className="mt-4 space-y-6">
               <div className="grid grid-cols-2 gap-4">
-                <div><p className="text-gray-400 text-sm">Team</p><p className="text-white font-semibold">{viewingSubmission.teamName}</p></div>
-                <div><p className="text-gray-400 text-sm">Phase</p><p className="text-white font-semibold">Phase {viewingSubmission.phase}</p></div>
+                <div><p className="text-gray-400 text-sm">{t("team")}</p><p className="text-white font-semibold">{viewingSubmission.teamName}</p></div>
+                <div><p className="text-gray-400 text-sm">{t("phase")}</p><p className="text-white font-semibold">{t("phase")} {viewingSubmission.phase}</p></div>
                 <div><p className="text-gray-400 text-sm">Submitted</p><p className="text-white">{new Date(viewingSubmission.submittedAt).toLocaleString()}</p></div>
                 <div><p className="text-gray-400 text-sm">Scores</p><p className="text-white">{viewingSubmission.scoresCount} / {viewingSubmission.totalJudges}</p></div>
               </div>
-              <div className="flex gap-4">
-                <a href={viewingSubmission.githubUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-electric-blue hover:underline">
-                  <ExternalLink size={16} />GitHub
-                </a>
-                <a href={viewingSubmission.demoUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-hot-pink hover:underline">
-                  <ExternalLink size={16} />Demo
-                </a>
-              </div>
-              {viewingSubmission.submissionDescription && (
-                <div>
-                  <p className="text-gray-400 text-sm mb-2">Description</p>
-                  <p className="text-white text-sm whitespace-pre-wrap bg-white/5 rounded-lg p-3">{viewingSubmission.submissionDescription}</p>
-                </div>
-              )}
-              <div>
-                <p className="text-gray-400 text-sm mb-2">AI Prompts Used</p>
-                <p className="text-white text-sm whitespace-pre-wrap bg-white/5 rounded-lg p-3">{viewingSubmission.aiPromptsUsed}</p>
-              </div>
-              <div>
-                <p className="text-gray-400 text-sm mb-2">AI Tools Utilized</p>
-                <p className="text-white text-sm whitespace-pre-wrap bg-white/5 rounded-lg p-3">{viewingSubmission.aiToolsUtilized}</p>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                <SubmissionView
+                  fields={resolvedFields}
+                  values={
+                    viewingSubmission.values ??
+                    submissionValues(viewingSubmission as unknown as { fields?: unknown } & Record<string, unknown>)
+                  }
+                  phase={viewingSubmission.phase}
+                />
               </div>
             </div>
           )}
@@ -1863,7 +2139,7 @@ export default function ContestAdminPage() {
             <div className="mt-4 space-y-5">
               <div>
                 <h4 className="text-xl font-bold text-white mb-2">{viewingTeam.name}</h4>
-                <p className="text-gray-400">Track: {viewingTeam.trackName || viewingTeam.track || "-"}</p>
+                <p className="text-gray-400">{t("track")}: {viewingTeam.trackName || viewingTeam.track || "-"}</p>
                 <span className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-semibold ${
                   viewingTeam.approved ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"
                 }`}>
@@ -1872,10 +2148,10 @@ export default function ContestAdminPage() {
               </div>
               <div>
                 <h5 className="text-lg font-semibold text-white mb-3">
-                  Members ({(viewingTeam.members?.filter((m: any) => m.role !== "mentor").length) || viewingTeam.members?.length || 0})
+                  Members ({(viewingTeam.members?.filter((m) => m.role !== "mentor").length) || viewingTeam.members?.length || 0})
                 </h5>
                 <div className="space-y-2">
-                  {viewingTeam.members?.filter((m: any) => m.role !== "mentor").map((member: any) => (
+                  {viewingTeam.members?.filter((m) => m.role !== "mentor").map((member) => (
                     <div key={member.id} className={`bg-white/5 border rounded-lg p-3 ${
                       member.id === viewingTeam.leaderId ? "border-amber-500/30 bg-amber-500/5" : "border-white/10"
                     }`}>

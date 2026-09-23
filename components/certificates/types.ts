@@ -51,4 +51,10 @@ export interface CertificatePDFProps {
   rank: number;
   rankLabel: string;
   template: CertificateTemplate;
+  /**
+   * Recognition line used when the template has no footerText, e.g.
+   * getPreset(contest.contestType).certificate.bodyText. Optional so older
+   * callers keep compiling; falls back to neutral wording.
+   */
+  bodyText?: string;
 }

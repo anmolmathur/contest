@@ -4,8 +4,10 @@ import { db } from "@/lib/db";
 import { submissions, scores } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
+import { validateCriteriaScores } from "@/lib/scoring";
+import { parseOptionalText } from "@/lib/api-input";
 
-// Legacy fixed field keys that map to dedicated columns
+// Legacy fixed field keys that map to dedicated (integer) columns
 const LEGACY_FIELD_MAP: Record<string, string> = {
   aiUsageScore: "aiUsageScore",
   businessImpactScore: "businessImpactScore",
@@ -14,6 +16,22 @@ const LEGACY_FIELD_MAP: Record<string, string> = {
   executionScore: "executionScore",
 };
 
+/**
+ * POST /api/c/[slug]/scores/submit
+ *
+ * Body: {
+ *   submissionId: string,
+ *   criteriaScores: Record<criterionKey, number>,   // each within contest.scoringScale
+ *   feedback?: string | null,                       // shown to the team once results are published
+ *   privateNote?: string | null,                    // jury-only, never shown to teams
+ * }
+ *
+ * Upserts the caller's score for that submission (one per judge per
+ * submission). Omitted feedback/privateNote leave existing values untouched
+ * on update; null or "" clears them.
+ *
+ * 201 { message, score } on create, 200 { message, score } on update.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -52,28 +70,33 @@ export async function POST(
       );
     }
 
-    const body = await req.json();
-    const { submissionId, criteriaScores } = body;
+    const body = await req.json().catch(() => null);
+    const { submissionId, criteriaScores } = (body ?? {}) as {
+      submissionId?: string;
+      criteriaScores?: Record<string, unknown>;
+    };
 
     // Validate required fields
-    if (!submissionId || !criteriaScores || typeof criteriaScores !== "object") {
+    if (!submissionId || !criteriaScores || typeof criteriaScores !== "object" || Array.isArray(criteriaScores)) {
       return NextResponse.json(
         { error: "submissionId and criteriaScores are required" },
         { status: 400 }
       );
     }
 
-    // Validate all score values are 0-100
-    const scoreEntries = Object.entries(criteriaScores) as [string, unknown][];
-    for (const [key, value] of scoreEntries) {
-      if (typeof value !== "number" || value < 0 || value > 100) {
-        return NextResponse.json(
-          {
-            error: `Score for "${key}" must be a number between 0 and 100`,
-          },
-          { status: 400 }
-        );
-      }
+    // Validate every value against the contest's scale (e.g. 0–100 or 1–10)
+    const scaleError = validateCriteriaScores(criteriaScores, contest.scoringScale);
+    if (scaleError) {
+      return NextResponse.json({ error: scaleError }, { status: 400 });
+    }
+
+    const feedback = parseOptionalText(body.feedback, "Feedback");
+    if (feedback.error !== undefined) {
+      return NextResponse.json({ error: feedback.error }, { status: 400 });
+    }
+    const privateNote = parseOptionalText(body.privateNote, "Private note");
+    if (privateNote.error !== undefined) {
+      return NextResponse.json({ error: privateNote.error }, { status: 400 });
     }
 
     // Verify submission exists and belongs to this contest
@@ -98,13 +121,17 @@ export async function POST(
       );
     }
 
-    // Extract legacy fields from criteriaScores for backward compatibility
-    const legacyFields: Record<string, number | undefined> = {};
+    // Mirror legacy keys into the old integer columns for backward compatibility
+    const legacyFields: Record<string, number> = {};
     for (const [criteriaKey, columnName] of Object.entries(LEGACY_FIELD_MAP)) {
       if (criteriaKey in criteriaScores) {
-        legacyFields[columnName] = criteriaScores[criteriaKey] as number;
+        legacyFields[columnName] = Math.round(criteriaScores[criteriaKey] as number);
       }
     }
+
+    const textFields: { feedback?: string | null; privateNote?: string | null } = {};
+    if (feedback.value !== undefined) textFields.feedback = feedback.value;
+    if (privateNote.value !== undefined) textFields.privateNote = privateNote.value;
 
     // Check if judge already scored this submission
     const existingScore = await db.query.scores.findFirst({
@@ -115,12 +142,12 @@ export async function POST(
     });
 
     if (existingScore) {
-      // Update existing score
       const [updatedScore] = await db
         .update(scores)
         .set({
           criteriaScores,
           ...legacyFields,
+          ...textFields,
           updatedAt: new Date(),
         })
         .where(eq(scores.id, existingScore.id))
@@ -130,23 +157,23 @@ export async function POST(
         { message: "Score updated successfully", score: updatedScore },
         { status: 200 }
       );
-    } else {
-      // Create new score
-      const [newScore] = await db
-        .insert(scores)
-        .values({
-          submissionId,
-          judgeId: session.user.id,
-          criteriaScores,
-          ...legacyFields,
-        })
-        .returning();
-
-      return NextResponse.json(
-        { message: "Score submitted successfully", score: newScore },
-        { status: 201 }
-      );
     }
+
+    const [newScore] = await db
+      .insert(scores)
+      .values({
+        submissionId,
+        judgeId: session.user.id,
+        criteriaScores,
+        ...legacyFields,
+        ...textFields,
+      })
+      .returning();
+
+    return NextResponse.json(
+      { message: "Score submitted successfully", score: newScore },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Score submission error:", error);
     return NextResponse.json(

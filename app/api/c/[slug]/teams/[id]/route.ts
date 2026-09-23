@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, users, submissions, contestUsers, tracks } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import { resolveContest, canAdminContest } from "@/lib/contest-auth";
+import { resolveSettings } from "@/lib/contest-config";
+import { contestTerm } from "@/lib/api-input";
 
 // GET - Get team details with members
 export async function GET(
@@ -43,6 +45,7 @@ export async function GET(
         role: users.role,
         department: users.department,
         participantRole: contestUsers.participantRole,
+        contestRole: contestUsers.role,
       })
       .from(contestUsers)
       .innerJoin(users, eq(contestUsers.userId, users.id))
@@ -125,19 +128,50 @@ export async function PUT(
       updateData.name = name.trim();
     }
 
-    if (trackId !== undefined) {
-      // Validate the track belongs to this contest
-      const track = await db.query.tracks.findFirst({
-        where: and(eq(tracks.id, trackId), eq(tracks.contestId, contest.id)),
+    if (trackId !== undefined && trackId !== (team.trackId ?? null)) {
+      const trackWord = contestTerm(contest, "track").toLowerCase();
+      const contestTracks = await db.query.tracks.findMany({
+        where: eq(tracks.contestId, contest.id),
+        columns: { id: true, name: true },
       });
 
-      if (!track) {
-        return NextResponse.json(
-          { error: "Invalid track for this contest" },
-          { status: 400 }
-        );
+      if (!trackId) {
+        // Clearing the track is only allowed when the contest has no tracks.
+        if (contestTracks.length > 0) {
+          return NextResponse.json(
+            { error: `Please select a ${trackWord}` },
+            { status: 400 }
+          );
+        }
+        updateData.trackId = null;
+      } else {
+        // Validate the track belongs to this contest
+        const track = contestTracks.find((t) => t.id === trackId);
+        if (!track) {
+          return NextResponse.json(
+            { error: `Invalid ${trackWord} for this contest` },
+            { status: 400 }
+          );
+        }
+
+        // One team per track/category when the contest says so.
+        if (resolveSettings(contest.settings).exclusiveTracks) {
+          const taken = await db.query.teams.findFirst({
+            where: and(eq(teams.contestId, contest.id), eq(teams.trackId, track.id), ne(teams.id, team.id)),
+            columns: { id: true },
+          });
+          if (taken) {
+            return NextResponse.json(
+              {
+                error: `The ${trackWord} "${track.name}" has already been taken by another ${contestTerm(contest, "team").toLowerCase()}. Please choose a different ${trackWord}.`,
+                code: "TRACK_TAKEN",
+              },
+              { status: 409 }
+            );
+          }
+        }
+        updateData.trackId = track.id;
       }
-      updateData.trackId = trackId;
     }
 
     const [updatedTeam] = await db
@@ -150,9 +184,9 @@ export async function PUT(
       message: "Team updated successfully",
       team: updatedTeam,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Update team error:", error);
-    if (error?.code === "23505") {
+    if ((error as { code?: string } | null)?.code === "23505") {
       return NextResponse.json(
         { error: "Team name already exists" },
         { status: 400 }

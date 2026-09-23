@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, users, contestUsers, contests, tracks } from "@/lib/db/schema";
+import { teams, users, contestUsers, tracks } from "@/lib/db/schema";
 import { eq, and, count } from "drizzle-orm";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
+import { resolveSettings } from "@/lib/contest-config";
+import { contestTerm } from "@/lib/api-input";
 
+/**
+ * POST /api/c/[slug]/teams/create
+ * Body: { name: string, trackId?: string }
+ *
+ * `trackId` is required when the contest has tracks/categories and optional
+ * when it has none. With `settings.exclusiveTracks` each track can be picked
+ * by only one team.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -48,26 +58,61 @@ export async function POST(
       );
     }
 
-    const body = await req.json();
-    const { name, trackId } = body;
+    const body = await req.json().catch(() => ({}));
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const trackId = typeof body?.trackId === "string" && body.trackId ? body.trackId : null;
+    const trackWord = contestTerm(contest, "track");
 
-    if (!name || !trackId) {
+    if (!name) {
       return NextResponse.json(
-        { error: "Missing required fields: name and trackId" },
+        { error: `Missing required field: ${contestTerm(contest, "team").toLowerCase()} name` },
         { status: 400 }
       );
     }
 
-    // Validate the track belongs to this contest
-    const track = await db.query.tracks.findFirst({
-      where: and(eq(tracks.id, trackId), eq(tracks.contestId, contest.id)),
+    // Tracks are optional only when the contest has none configured.
+    const contestTracks = await db.query.tracks.findMany({
+      where: eq(tracks.contestId, contest.id),
+      columns: { id: true, name: true },
     });
 
-    if (!track) {
+    let track: { id: string; name: string } | undefined;
+    if (contestTracks.length > 0) {
+      if (!trackId) {
+        return NextResponse.json(
+          { error: `Please select a ${trackWord.toLowerCase()}` },
+          { status: 400 }
+        );
+      }
+      track = contestTracks.find((t) => t.id === trackId);
+      if (!track) {
+        return NextResponse.json(
+          { error: `Invalid ${trackWord.toLowerCase()} for this contest` },
+          { status: 400 }
+        );
+      }
+    } else if (trackId) {
       return NextResponse.json(
-        { error: "Invalid track for this contest" },
+        { error: `This contest has no ${trackWord.toLowerCase()} to choose from` },
         { status: 400 }
       );
+    }
+
+    // One team per track/category when the contest says so.
+    if (track && resolveSettings(contest.settings).exclusiveTracks) {
+      const taken = await db.query.teams.findFirst({
+        where: and(eq(teams.contestId, contest.id), eq(teams.trackId, track.id)),
+        columns: { id: true },
+      });
+      if (taken) {
+        return NextResponse.json(
+          {
+            error: `The ${trackWord.toLowerCase()} "${track.name}" has already been taken by another ${contestTerm(contest, "team").toLowerCase()}. Please choose a different ${trackWord.toLowerCase()}.`,
+            code: "TRACK_TAKEN",
+          },
+          { status: 409 }
+        );
+      }
     }
 
     // Check if team count limit has been reached
@@ -95,9 +140,9 @@ export async function POST(
     const [newTeam] = await db
       .insert(teams)
       .values({
-        name: name.trim(),
+        name,
         contestId: contest.id,
-        trackId,
+        trackId: track?.id ?? null,
         createdBy: session.user.id,
         leaderId: session.user.id,
       })
@@ -121,9 +166,9 @@ export async function POST(
       { message: "Team created successfully", team: newTeam },
       { status: 201 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Team creation error:", error);
-    if (error?.code === "23505") {
+    if ((error as { code?: string } | null)?.code === "23505") {
       return NextResponse.json(
         { error: "Team name already exists" },
         { status: 400 }

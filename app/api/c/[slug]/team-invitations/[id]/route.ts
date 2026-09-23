@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teamInvitations, teams, contestUsers } from "@/lib/db/schema";
+import { teamInvitations, teams, contestUsers, users } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest } from "@/lib/contest-auth";
+import { checkTeamSlot } from "@/lib/team-capacity";
 
-/** PATCH: accept or decline. Body: { action: 'accept' | 'decline' | 'cancel' } */
+/**
+ * PATCH: accept / decline / cancel.  Body: { action: 'accept' | 'decline' | 'cancel' }
+ *
+ * Accepting enforces the same rules as teams/add-member: the joiner must not
+ * already be on a team, mentors can't join as participants, and the team's
+ * size (participants only) and per-role caps (contest.roleConfig) apply.
+ * All checks run BEFORE the invitation is marked accepted, so a rejected
+ * accept leaves the invitation pending.
+ */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
@@ -16,8 +25,8 @@ export async function PATCH(
   const contest = await resolveContest(slug);
   if (!contest) return NextResponse.json({ error: "Contest not found" }, { status: 404 });
 
-  const { action } = await req.json();
-  if (!["accept", "decline", "cancel"].includes(action)) {
+  const { action } = (await req.json().catch(() => ({}))) as { action?: string };
+  if (!action || !["accept", "decline", "cancel"].includes(action)) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   }
 
@@ -51,32 +60,42 @@ export async function PATCH(
     if (!canDecide) return NextResponse.json({ error: "Not authorized to decide" }, { status: 403 });
   }
 
-  // Update invitation row.
-  await db
-    .update(teamInvitations)
-    .set({
-      status: action === "cancel" ? "cancelled" : action === "accept" ? "accepted" : "declined",
-      updatedAt: new Date(),
-    })
-    .where(eq(teamInvitations.id, id));
-
-  // If accepted, add the target user to the team via contest_users.
   if (action === "accept") {
-    // The "joiner" is whoever wasn't the leader at the point of ask.
-    const joinerUserId = inv.direction === "invite" ? inv.inviteeUserId : inv.inviteeUserId;
+    // The joiner is always the invitee (invite: the invited user; request: the requester).
+    const joinerUserId = inv.inviteeUserId;
     const existingCu = await db.query.contestUsers.findFirst({
       where: and(
         eq(contestUsers.contestId, contest.id),
         eq(contestUsers.userId, joinerUserId),
       ),
     });
+
+    if (existingCu?.teamId) {
+      return NextResponse.json(
+        { error: "User already on a team; invitation was stale" },
+        { status: 409 }
+      );
+    }
+    if (existingCu && existingCu.role === "mentor") {
+      return NextResponse.json(
+        { error: "Mentors are attached to teams by the organisers, not via invitations" },
+        { status: 400 }
+      );
+    }
+
+    // Same size + role-cap rules as teams/add-member.
+    const slotError = await checkTeamSlot({
+      contest,
+      teamId: inv.teamId,
+      userId: joinerUserId,
+      participantRole: existingCu?.participantRole ?? null,
+      mode: "join",
+    });
+    if (slotError) {
+      return NextResponse.json({ error: slotError }, { status: 400 });
+    }
+
     if (existingCu) {
-      if (existingCu.teamId) {
-        return NextResponse.json(
-          { error: "User already on a team; invitation was stale" },
-          { status: 409 }
-        );
-      }
       await db.update(contestUsers).set({ teamId: inv.teamId }).where(eq(contestUsers.id, existingCu.id));
     } else {
       await db.insert(contestUsers).values({
@@ -86,7 +105,18 @@ export async function PATCH(
         teamId: inv.teamId,
       });
     }
+
+    // Keep users.teamId in sync for backward compat (same as add-member).
+    await db.update(users).set({ teamId: inv.teamId }).where(eq(users.id, joinerUserId));
   }
+
+  await db
+    .update(teamInvitations)
+    .set({
+      status: action === "cancel" ? "cancelled" : action === "accept" ? "accepted" : "declined",
+      updatedAt: new Date(),
+    })
+    .where(eq(teamInvitations.id, id));
 
   return NextResponse.json({ ok: true, status: action });
 }

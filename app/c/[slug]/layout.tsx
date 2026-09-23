@@ -5,6 +5,8 @@ import { notFound } from "next/navigation";
 import { ContestProvider } from "@/lib/contest-context";
 import { ContestStatusBanner } from "@/components/ContestStatusBanner";
 import { AssistantWidget } from "@/components/AssistantWidget";
+import { ContestNav, HideOnStage } from "@/components/public/ContestChrome";
+import { resolveSettings } from "@/lib/contest-config";
 import type { Metadata } from "next";
 
 // Import the Contest type for casting jsonb fields
@@ -114,15 +116,32 @@ export default async function ContestLayout({
     })),
   };
 
+  const settings = resolveSettings(contest.settings);
+  const hasAgenda =
+    (Array.isArray(contest.agenda) && contest.agenda.length > 0) ||
+    (Array.isArray(contest.speakers) && contest.speakers.length > 0);
+
   return (
     <div style={brandStyle}>
-      <ContestStatusBanner status={contest.status} />
+      <HideOnStage>
+        <ContestStatusBanner status={contest.status} />
+      </HideOnStage>
+      <ContestNav
+        slug={contest.slug}
+        name={contest.name}
+        showAgenda={hasAgenda}
+        showShowcase={!!settings.showcaseEnabled}
+      />
       <ContestProvider contest={serializedContest}>
         {children}
       </ContestProvider>
-      {/* AI assistant — mock driver in dev, OpenAI in prod when OPENAI_API_KEY is set.
-          Suppress for drafts to avoid leaking unfinished rules. */}
-      {contest.status !== "draft" && <AssistantWidget contestSlug={contest.slug} />}
+      {/* AI assistant — suppressed for drafts (avoid leaking unfinished rules),
+          when the contest disables it, and on the projector stage view. */}
+      {settings.assistantEnabled && contest.status !== "draft" && (
+        <HideOnStage>
+          <AssistantWidget contestSlug={contest.slug} />
+        </HideOnStage>
+      )}
     </div>
   );
 }

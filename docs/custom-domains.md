@@ -1,4 +1,4 @@
-# Custom Domain Setup (production-only)
+# Custom Domain Setup (one contest per domain)
 
 Custom-domain whitelabeling is shipped in code but **disabled by default** via the
 `ENABLE_CUSTOM_DOMAINS` env var. This document is for the production ops team —
@@ -11,8 +11,43 @@ Set these on the production app container:
 ```
 ENABLE_CUSTOM_DOMAINS=true
 PLATFORM_DOMAINS=hackathon.teamleaseedtech.com     # comma-separated list of apex hosts
-PLATFORM_CANONICAL_HOST=hackathon.teamleaseedtech.com  # shown to customers in DNS instructions
+PLATFORM_CANONICAL_HOST=hackathon.teamleaseedtech.com  # shown to customers in DNS instructions + used for email links
 ```
+
+**Do not set `NEXTAUTH_URL` / `AUTH_URL`** when custom domains are on. Auth.js
+runs with `trustHost`, so each request's own host (platform domain or a
+contest's custom domain) is used for sign-in callbacks and the session cookie.
+A fixed `NEXTAUTH_URL` would send every custom-domain login back to the
+platform host, and the user would appear logged out on their contest domain.
+
+## What a contest gets on its own domain
+
+A verified domain serves the **whole application for that one contest** —
+suitable for handing a contest to a third party:
+
+- `/`, `/rules`, `/agenda`, `/results`, `/dashboard`, `/judging`, `/admin`, … are
+  rewritten internally to `/c/<slug>/…` (auth still applies to the rewritten path).
+- `/login`, `/register`, `/forgot-password`, `/reset-password` work on that host;
+  after sign-in users land on that contest (`/post-login`).
+- `GET /api/contests` on that host lists only that contest.
+- Password-reset emails link back to the host the user requested them from;
+  notification emails use the contest's verified domain.
+- Sessions are per host: a user signs in separately on each domain.
+- Platform admins can still administer every contest from the platform domain.
+
+## Google sign-in on custom domains
+
+Google SSO (`AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`) needs one Authorized
+redirect URI per host in the Google Cloud OAuth client:
+
+```
+https://hackathon.teamleaseedtech.com/api/auth/callback/google
+https://<each-custom-domain>/api/auth/callback/google
+```
+
+Add the custom domain's URI **before** telling the third party to use Google
+sign-in, otherwise Google shows `redirect_uri_mismatch`. Email + password
+sign-in works without any Google configuration.
 
 ## Reverse-proxy config
 
@@ -74,12 +109,12 @@ pointed, add a `server` block that `proxy_pass`es to the app. Non-automatic.
 
 ## Testing on localhost
 
-Set `ENABLE_CUSTOM_DOMAINS=true` in `.env` and add an entry to `/etc/hosts`:
+Set `ENABLE_CUSTOM_DOMAINS=true` in `.env`. Use a `*.localtest.me` host — it
+resolves to 127.0.0.1 without editing `/etc/hosts` (note: `localhost` and
+`*.local` are deliberately never treated as custom domains):
 
-```
-127.0.0.1   ai.testcontest.local
-```
-
-Then add a row via `POST /api/platform/contests/innovation-challenge/domain`
-with `{ "domain": "ai.testcontest.local" }` and hit
-`http://ai.testcontest.local:3000/.well-known/contest-verify` once to verify.
+Add a row via `POST /api/platform/contests/<slug>/domain` with
+`{ "domain": "symposium.localtest.me" }` (or the Custom domain card in the
+contest admin Settings tab) and open
+`http://symposium.localtest.me:3000/.well-known/contest-verify` once to verify.
+Verification only trusts the Host header the request arrived on.

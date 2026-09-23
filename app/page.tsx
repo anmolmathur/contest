@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import GlowButton from "@/components/GlowButton";
+import { getPreset } from "@/lib/contest-types";
 
 interface ContestSummary {
   id: string;
@@ -14,6 +15,7 @@ interface ContestSummary {
   slug: string;
   description: string | null;
   status: string;
+  contestType?: string | null;
   heroTitle: string | null;
   heroSubtitle: string | null;
   bannerImageUrl: string | null;
@@ -86,7 +88,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-6xl md:text-8xl font-black mb-6"
+            className="text-5xl sm:text-6xl md:text-8xl font-black mb-6"
             style={{
               WebkitTextStroke: "2px transparent",
               backgroundImage:
@@ -108,7 +110,7 @@ export default function HomePage() {
             transition={{ duration: 0.8, delay: 0.5 }}
             className="text-xl md:text-2xl text-gray-300 mb-8 max-w-2xl mx-auto"
           >
-            Explore hackathons, challenges, and innovation contests
+            TeamLease EdTech hackathons, business symposiums and innovation challenges
           </motion.p>
 
           {isPlatformAdmin && (
@@ -187,12 +189,21 @@ export default function HomePage() {
                       <div className="h-2 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink" />
 
                       <div className="p-6 flex flex-col flex-1">
-                        {/* Status Badge */}
-                        <div className="flex items-center justify-between mb-4">
+                        {/* Status + type badges */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                           <span
                             className={`px-3 py-1 rounded-full text-xs font-semibold ${status.bg} ${status.text}`}
                           >
                             {status.label}
+                          </span>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                              contest.contestType === "business_symposium"
+                                ? "border-hot-pink/40 bg-hot-pink/10 text-pink-200"
+                                : "border-electric-blue/40 bg-electric-blue/10 text-blue-200"
+                            }`}
+                          >
+                            {getPreset(contest.contestType).label}
                           </span>
                         </div>
 
@@ -249,7 +260,7 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="py-8 px-4 border-t border-white/10">
         <div className="max-w-7xl mx-auto text-center text-gray-400">
-          <p>&copy; {new Date().getFullYear()} Innovation Hub. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} TeamLease EdTech Innovation Hub. All rights reserved.</p>
         </div>
       </footer>
     </main>

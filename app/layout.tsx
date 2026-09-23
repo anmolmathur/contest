@@ -14,8 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Innovation Challenge - AI/Vibe Coding Hackathon",
-  description: "Join the Innovation Challenge and build the future of education technology with AI-powered solutions",
+  title: {
+    default: "TeamLease EdTech Innovation Hub",
+    template: "%s | TeamLease EdTech Innovation Hub",
+  },
+  description:
+    "Hackathons, business symposiums and innovation challenges by TeamLease EdTech — register a team, submit, pitch and follow live results.",
 };
 
 export default function RootLayout({

@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, submissions, scores, contests, contestUsers } from "@/lib/db/schema";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { teams, submissions, contestUsers } from "@/lib/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
-
-interface ScoringCriterion {
-  name: string;
-  key: string;
-  weight: number;
-  description?: string;
-}
+import { submissionValues } from "@/lib/submission-fields";
 
 export async function GET(
   req: NextRequest,
@@ -60,9 +54,7 @@ export async function GET(
       with: {
         team: true,
         scores: {
-          with: {
-            judge: true,
-          },
+          columns: { id: true, judgeId: true },
         },
       },
       orderBy: (submissions, { desc }) => [desc(submissions.submittedAt)],
@@ -98,6 +90,9 @@ export async function GET(
       aiPromptsUsed: submission.aiPromptsUsed,
       aiToolsUtilized: submission.aiToolsUtilized,
       aiScreenshots: submission.aiScreenshots,
+      // Generic values: `fields` as stored, `values` merged with legacy columns.
+      fields: submission.fields ?? null,
+      values: submissionValues(submission),
       submittedAt: submission.submittedAt,
       updatedAt: submission.updatedAt,
       wasEdited:

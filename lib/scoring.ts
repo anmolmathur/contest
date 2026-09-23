@@ -22,6 +22,9 @@ export interface PhaseEntry {
 }
 
 export function normalizeToHundred(value: number, scale: ScoringScale): number {
+  // Legacy 0–100 contests: use the raw value so totals stay bit-identical
+  // to the pre-scale implementation.
+  if (scale.min === 0 && scale.max === 100) return Math.min(100, Math.max(0, value));
   const span = scale.max - scale.min;
   if (span <= 0) return 0;
   const clamped = Math.min(scale.max, Math.max(scale.min, value));

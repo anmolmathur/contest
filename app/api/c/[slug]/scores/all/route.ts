@@ -1,42 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, submissions, scores, contests, contestUsers } from "@/lib/db/schema";
+import { teams, submissions, scores } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
+import { calculateWeightedScore, type ScoringCriterion } from "@/lib/scoring";
+import { resolveScale } from "@/lib/contest-config";
 
-interface ScoringCriterion {
-  name: string;
-  key: string;
-  weight: number;
-  description?: string;
-}
-
-function calculateWeightedScore(
-  criteriaScores: Record<string, number> | null | undefined,
-  scoringCriteria: ScoringCriterion[]
-): number {
-  if (!criteriaScores || scoringCriteria.length === 0) return 0;
-
-  let weightedSum = 0;
-  let totalWeight = 0;
-
-  for (const criterion of scoringCriteria) {
-    const scoreValue = criteriaScores[criterion.key];
-    if (scoreValue !== undefined && scoreValue !== null) {
-      weightedSum += scoreValue * criterion.weight;
-      totalWeight += criterion.weight;
-    }
-  }
-
-  // Normalize if total weights don't sum to 1
-  if (totalWeight > 0 && totalWeight !== 1) {
-    return weightedSum / totalWeight;
-  }
-
-  return weightedSum;
-}
-
+/**
+ * GET /api/c/[slug]/scores/all[?judgeOnly=true]
+ *
+ * Judges/admins only. Returns every score in the contest (or just the
+ * caller's with judgeOnly=true), each with `weightedScore` (0–100, string
+ * with 2 decimals, normalised from the contest's scale) plus the jury
+ * `feedback` and `privateNote`.
+ *
+ * { scores: [...], scoringScale: { min, max, step, labels? } }
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -107,7 +87,7 @@ export async function GET(
               team: true,
             },
           },
-          judge: true,
+          judge: { columns: { id: true, name: true, email: true } },
         },
       });
     } else {
@@ -119,17 +99,18 @@ export async function GET(
               team: true,
             },
           },
-          judge: true,
+          judge: { columns: { id: true, name: true, email: true } },
         },
       });
     }
 
     const scoringCriteria = (contest.scoringCriteria as ScoringCriterion[]) || [];
+    const scoringScale = resolveScale(contest.scoringScale);
 
     // Format the response
     const formattedScores = contestScores.map((score) => {
       const criteriaScoresData = score.criteriaScores as Record<string, number> | null;
-      const weightedScore = calculateWeightedScore(criteriaScoresData, scoringCriteria);
+      const weightedScore = calculateWeightedScore(criteriaScoresData, scoringCriteria, scoringScale);
 
       return {
         id: score.id,
@@ -149,12 +130,15 @@ export async function GET(
         // Dynamic criteria scores
         criteriaScores: criteriaScoresData,
         weightedScore: weightedScore.toFixed(2),
+        // Jury comments (shown to the team after results) + jury-only note
+        feedback: score.feedback ?? null,
+        privateNote: score.privateNote ?? null,
         createdAt: score.createdAt,
         updatedAt: score.updatedAt,
       };
     });
 
-    return NextResponse.json({ scores: formattedScores }, { status: 200 });
+    return NextResponse.json({ scores: formattedScores, scoringScale }, { status: 200 });
   } catch (error) {
     console.error("Get all scores error:", error);
     return NextResponse.json(

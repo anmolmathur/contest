@@ -20,10 +20,10 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Trophy, Users, Radio, Award, Medal, Crown, Share2, Link as LinkIcon,
+  Trophy, Users, Radio, Award, Medal, Crown, Share2,
   Search, ChevronLeft, RefreshCw, Zap, CheckCircle2,
 } from "lucide-react";
-import { useContest } from "@/lib/contest-context";
+import { useContest, useContestConfig } from "@/lib/contest-context";
 
 type LBEntry = {
   teamId: string;
@@ -107,6 +107,9 @@ export default function ResultsPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const { contest } = useContest();
+  const { t, tp } = useContestConfig();
+  const phaseTerm = t("phase");
+  const phaseAbbr = phaseTerm.charAt(0).toUpperCase();
 
   const [leaderboard, setLeaderboard] = useState<LBEntry[]>([]);
   const [phaseConfig, setPhaseConfig] = useState<PhaseConfig[]>([]);
@@ -244,12 +247,13 @@ export default function ResultsPage() {
     >
       {/* ---------------- HEADER ---------------- */}
       <header className="border-b border-white/5 backdrop-blur-md sticky top-0 z-30 bg-slate-950/60">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 sm:px-6 py-3 sm:py-4">
           <Link
             href={`/c/${slug}`}
             className="flex items-center gap-2 text-sm text-slate-400 hover:text-white"
           >
-            <ChevronLeft size={16} /> Back to contest
+            <ChevronLeft size={16} /> <span className="hidden sm:inline">Back to contest</span>
+            <span className="sm:hidden">Back</span>
           </Link>
           <div className="flex items-center gap-2">
             <button
@@ -258,7 +262,7 @@ export default function ResultsPage() {
               title="Refresh now"
             >
               <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-              {isLive ? "Auto-refresh on" : "Refresh"}
+              <span className="hidden sm:inline">{isLive ? "Auto-refresh on" : "Refresh"}</span>
             </button>
             <button
               onClick={onShare}
@@ -283,7 +287,7 @@ export default function ResultsPage() {
             {currentPhase && (
               <div className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-3 py-1 text-xs text-slate-300">
                 <Zap size={12} className="text-amber-300" />
-                Phase {currentPhase.phase} — {currentPhase.name}
+                {phaseTerm} {currentPhase.phase} — {currentPhase.name}
               </div>
             )}
           </div>
@@ -320,10 +324,10 @@ export default function ResultsPage() {
             transition={{ duration: 0.4, delay: 0.1 }}
             className="grid grid-cols-2 md:grid-cols-4 gap-3"
           >
-            <StatCard icon={<Users size={18} />} label="Teams Competing" value={stats.teams} />
+            <StatCard icon={<Users size={18} />} label={`${tp("team")} Competing`} value={stats.teams} />
             <StatCard
               icon={<CheckCircle2 size={18} />}
-              label="Teams With Scores"
+              label={`${tp("team")} With Scores`}
               value={`${stats.scoredTeams} / ${stats.teams}`}
             />
             <StatCard
@@ -346,7 +350,7 @@ export default function ResultsPage() {
       {phaseProgress.length > 0 && (
         <section className="mx-auto max-w-7xl px-6 mt-10">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400 mb-3">
-            Phase Progress
+            {phaseTerm} Progress
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {phaseProgress.map((p, idx) => (
@@ -358,7 +362,7 @@ export default function ResultsPage() {
                 className="rounded-xl border border-white/10 bg-white/5 p-4"
               >
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Phase {p.phase}</span>
+                  <span>{phaseTerm} {p.phase}</span>
                   <span>{p.pct}%</span>
                 </div>
                 <div className="mt-1 text-sm font-semibold text-white line-clamp-1">{p.name}</div>
@@ -374,7 +378,7 @@ export default function ResultsPage() {
                   />
                 </div>
                 <div className="mt-2 text-[11px] text-slate-500">
-                  {p.scoredCount} of {leaderboard.length} teams scored · {p.maxPoints} pts max
+                  {p.scoredCount} of {leaderboard.length} {tp("team").toLowerCase()} scored · {p.maxPoints} pts max
                 </div>
               </motion.div>
             ))}
@@ -418,7 +422,7 @@ export default function ResultsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search team, member, track…"
+              placeholder={`Search ${t("team").toLowerCase()}, member, ${t("track").toLowerCase()}…`}
               className="w-full sm:w-72 rounded-md border border-white/10 bg-white/5 pl-9 pr-3 py-2 text-sm placeholder:text-slate-500 focus:border-purple-500/50 focus:outline-none"
             />
           </div>
@@ -428,7 +432,7 @@ export default function ResultsPage() {
               onChange={(e) => setTrackFilter(e.target.value)}
               className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
             >
-              <option value="all">All tracks</option>
+              <option value="all">All {tp("track").toLowerCase()}</option>
               {tracks.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -443,7 +447,7 @@ export default function ResultsPage() {
             Loading leaderboard…
           </div>
         ) : leaderboard.length === 0 ? (
-          <EmptyState status={contest.status} />
+          <EmptyState status={contest.status} teamsLabel={tp("team")} />
         ) : (
           <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
             <div className="overflow-x-auto">
@@ -451,12 +455,12 @@ export default function ResultsPage() {
                 <thead className="bg-white/[0.04] text-left text-[11px] uppercase tracking-wider text-slate-400">
                   <tr>
                     <th className="px-4 py-3">Rank</th>
-                    <th className="px-4 py-3">Team</th>
-                    <th className="px-4 py-3 hidden md:table-cell">Track</th>
+                    <th className="px-4 py-3">{t("team")}</th>
+                    <th className="px-4 py-3 hidden md:table-cell">{t("track")}</th>
                     <th className="px-4 py-3 hidden lg:table-cell">Members</th>
                     {phaseConfig.map((p) => (
-                      <th key={p.phase} className="px-4 py-3 hidden sm:table-cell text-right">
-                        P{p.phase}
+                      <th key={p.phase} className="px-4 py-3 hidden sm:table-cell text-right" title={`${phaseTerm} ${p.phase} · ${p.name}`}>
+                        {phaseAbbr}{p.phase}
                       </th>
                     ))}
                     <th className="px-4 py-3 text-right">Total</th>
@@ -680,7 +684,7 @@ function PodiumCard({
   );
 }
 
-function EmptyState({ status }: { status: string }) {
+function EmptyState({ status, teamsLabel }: { status: string; teamsLabel: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-12 text-center">
       <Radio size={40} className="mx-auto mb-4 text-slate-500" />
@@ -692,7 +696,7 @@ function EmptyState({ status }: { status: string }) {
             : "No results recorded for this contest"}
       </div>
       <p className="mt-2 text-sm text-slate-400">
-        Teams will appear here once they're approved and scored.
+        {teamsLabel} will appear here once they&apos;re approved and scored.
       </p>
     </div>
   );

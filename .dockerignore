@@ -51,3 +51,10 @@ PROJECT_SUMMARY.md
 # Test files
 test-db-connection.js
 
+
+# Office docs / backups / local uploads never belong in the image
+*.docx
+*.pdf
+backups/
+uploads/
+docs/

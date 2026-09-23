@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -47,17 +48,13 @@ import {
   ShieldAlert,
   Globe,
   Settings,
+  Sparkles,
 } from "lucide-react";
-import {
-  DEFAULT_SCORING_CRITERIA,
-  DEFAULT_PHASE_CONFIG,
-  DEFAULT_PRIZES,
-  DEFAULT_ROLE_CONFIG,
-  DEFAULT_MAX_TEAMS,
-  DEFAULT_MAX_APPROVED_TEAMS,
-  DEFAULT_MAX_TEAM_MEMBERS,
-  ROLES,
-} from "@/lib/constants";
+import { ROLES } from "@/lib/constants";
+import { termPlural, type ContestType } from "@/lib/contest-config";
+import { getPreset } from "@/lib/contest-types";
+import { AiContestSetup, type ContestDraft } from "@/components/admin/AiContestSetup";
+import { ContestTypeBadge, ContestTypePicker } from "@/components/admin/ContestTypePicker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,10 +72,35 @@ interface Contest {
   startDate: string | null;
   endDate: string | null;
   createdAt: string | null;
+  contestType?: string | null;
+  visibility?: string | null;
   customDomain?: string | null;
   customDomainVerifiedAt?: string | null;
   isDefault?: boolean;
 }
+
+function blankContestForm(type: ContestType = "hackathon") {
+  const p = getPreset(type);
+  return {
+    contestType: type,
+    name: "",
+    slug: "",
+    description: "",
+    status: "draft",
+    heroTitle: "",
+    heroSubtitle: "",
+    maxTeams: p.maxTeams,
+    maxApprovedTeams: p.maxApprovedTeams,
+    maxTeamMembers: p.maxTeamMembers,
+    // clone-from flow in the create dialog
+    cloneFromSlug: "" as string, // "" = create-from-scratch, else source slug
+    shiftDatesByDays: 0,
+    // custom domain (editable in both dialogs, optional)
+    customDomain: "",
+  };
+}
+
+type LimitKey = "maxTeams" | "maxApprovedTeams" | "maxTeamMembers";
 
 interface PlatformUser {
   id: string;
@@ -100,6 +122,7 @@ type TabType = "stats" | "contests" | "users";
 
 export default function PlatformAdminPage() {
   const { data: session, status } = useSession();
+  const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<TabType>("stats");
   const [loading, setLoading] = useState(true);
@@ -113,22 +136,15 @@ export default function PlatformAdminPage() {
   // Contest dialogs
   const [contestDialogOpen, setContestDialogOpen] = useState(false);
   const [editingContest, setEditingContest] = useState<Contest | null>(null);
-  const [contestForm, setContestForm] = useState({
-    name: "",
-    slug: "",
-    description: "",
-    status: "draft",
-    heroTitle: "",
-    heroSubtitle: "",
-    maxTeams: DEFAULT_MAX_TEAMS,
-    maxApprovedTeams: DEFAULT_MAX_APPROVED_TEAMS,
-    maxTeamMembers: DEFAULT_MAX_TEAM_MEMBERS,
-    // NEW — clone-from flow in the create dialog
-    cloneFromSlug: "" as string, // "" = create-from-scratch, else source slug
-    shiftDatesByDays: 0,
-    // NEW — custom domain (editable in both dialogs, optional)
-    customDomain: "",
-  });
+  const [contestForm, setContestForm] = useState(() => blankContestForm());
+  // Team limits the admin actually edited — only these are sent on create, so
+  // untouched values come from the type preset on the server.
+  const [touchedLimits, setTouchedLimits] = useState<Set<LimitKey>>(new Set());
+
+  // "Create with AI" dialog
+  const [aiCreateOpen, setAiCreateOpen] = useState(false);
+  const [aiCreating, setAiCreating] = useState(false);
+  const [aiCreateError, setAiCreateError] = useState("");
   // Remember the original domain so we only hit the domain API when the admin
   // actually changed it (avoids a needless round-trip on plain field edits).
   const [originalDomain, setOriginalDomain] = useState<string>("");
@@ -203,20 +219,8 @@ export default function PlatformAdminPage() {
   // -----------------------------------------------------------------------
   const openCreateContest = () => {
     setEditingContest(null);
-    setContestForm({
-      name: "",
-      slug: "",
-      description: "",
-      status: "draft",
-      heroTitle: "",
-      heroSubtitle: "",
-      maxTeams: DEFAULT_MAX_TEAMS,
-      maxApprovedTeams: DEFAULT_MAX_APPROVED_TEAMS,
-      maxTeamMembers: DEFAULT_MAX_TEAM_MEMBERS,
-      cloneFromSlug: "",
-      shiftDatesByDays: 0,
-      customDomain: "",
-    });
+    setContestForm(blankContestForm());
+    setTouchedLimits(new Set());
     setOriginalDomain("");
     setContestDialogOpen(true);
   };
@@ -224,21 +228,35 @@ export default function PlatformAdminPage() {
   const openEditContest = (contest: Contest) => {
     setEditingContest(contest);
     setContestForm({
+      ...blankContestForm(getPreset(contest.contestType).type),
       name: contest.name,
       slug: contest.slug,
       description: contest.description || "",
       status: contest.status,
       heroTitle: contest.heroTitle || "",
       heroSubtitle: contest.heroSubtitle || "",
-      maxTeams: DEFAULT_MAX_TEAMS,
-      maxApprovedTeams: DEFAULT_MAX_APPROVED_TEAMS,
-      maxTeamMembers: DEFAULT_MAX_TEAM_MEMBERS,
-      cloneFromSlug: "",
-      shiftDatesByDays: 0,
       customDomain: contest.customDomain || "",
     });
+    setTouchedLimits(new Set());
     setOriginalDomain(contest.customDomain || "");
     setContestDialogOpen(true);
+  };
+
+  /** Switch type in the create dialog; untouched limits follow the new preset. */
+  const selectContestType = (type: ContestType) => {
+    const p = getPreset(type);
+    setContestForm((f) => ({
+      ...f,
+      contestType: type,
+      maxTeams: touchedLimits.has("maxTeams") ? f.maxTeams : p.maxTeams,
+      maxApprovedTeams: touchedLimits.has("maxApprovedTeams") ? f.maxApprovedTeams : p.maxApprovedTeams,
+      maxTeamMembers: touchedLimits.has("maxTeamMembers") ? f.maxTeamMembers : p.maxTeamMembers,
+    }));
+  };
+
+  const setLimit = (key: LimitKey, value: number) => {
+    setContestForm((f) => ({ ...f, [key]: value }));
+    setTouchedLimits((t) => new Set(t).add(key));
   };
 
   // Contests eligible to clone from (any active or completed contest in the platform).
@@ -310,10 +328,19 @@ export default function PlatformAdminPage() {
 
       if (editingContest) {
         // --- UPDATE path ---------------------------------------------------
+        // Only the fields this dialog shows — team limits, type and the rest
+        // of the config are edited from the contest's own admin page.
         const res = await fetch(`/api/contests/${editingContest.slug}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(contestForm),
+          body: JSON.stringify({
+            name: contestForm.name,
+            slug: contestForm.slug,
+            description: contestForm.description,
+            status: contestForm.status,
+            heroTitle: contestForm.heroTitle,
+            heroSubtitle: contestForm.heroSubtitle,
+          }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -347,24 +374,32 @@ export default function PlatformAdminPage() {
           `Cloned from "${contestForm.cloneFromSlug}". New contest is in draft — customize and activate from its admin page.`,
         );
       } else {
-        // --- CREATE-FROM-SCRATCH path -------------------------------------
+        // --- CREATE-FROM-PRESET path ---------------------------------------
+        // The server seeds criteria/phases/fields/scale/prizes/roles/tracks
+        // from the type preset; we only send what the admin entered.
+        const body: Record<string, unknown> = {
+          contestType: contestForm.contestType,
+          name: contestForm.name,
+          slug: contestForm.slug,
+          description: contestForm.description,
+          status: contestForm.status,
+          heroTitle: contestForm.heroTitle,
+          heroSubtitle: contestForm.heroSubtitle,
+        };
+        touchedLimits.forEach((k) => {
+          body[k] = contestForm[k];
+        });
         const res = await fetch("/api/contests", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...contestForm,
-            scoringCriteria: DEFAULT_SCORING_CRITERIA,
-            phaseConfig: DEFAULT_PHASE_CONFIG,
-            prizes: DEFAULT_PRIZES,
-            roleConfig: DEFAULT_ROLE_CONFIG,
-          }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok) {
           setError(data.error || "Failed to create contest");
           return;
         }
-        setSuccess("Contest created successfully");
+        setSuccess(`${getPreset(contestForm.contestType).label} created — configure it from its admin page.`);
       }
 
       // After the contest row exists, sync the custom domain if it changed.
@@ -401,6 +436,51 @@ export default function PlatformAdminPage() {
       loadContests();
     } catch {
       setError("Failed to delete contest");
+    }
+  };
+
+  /**
+   * "Create with AI": the assistant hands back a full draft; create it via
+   * POST /api/contests and jump to the new contest's settings for review.
+   */
+  const handleAiDraft = async (draft: ContestDraft) => {
+    setAiCreateError("");
+    const name = typeof draft.name === "string" ? draft.name.trim() : "";
+    if (!name) {
+      setAiCreateError("The draft has no contest name yet — ask the assistant to include one.");
+      return;
+    }
+    const baseSlug = autoSlug(typeof draft.slug === "string" && draft.slug.trim() ? draft.slug : name) || "contest";
+    setAiCreating(true);
+    try {
+      let slug = baseSlug;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const res = await fetch("/api/contests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...draft, name, slug, status: draft.status ?? "draft" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          // Slug taken — retry with a short suffix.
+          slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+          continue;
+        }
+        if (!res.ok) {
+          setAiCreateError(data.error || "Failed to create contest");
+          return;
+        }
+        const finalSlug = (data.slug as string) || slug;
+        setAiCreateOpen(false);
+        setSuccess(`Created "${name}" — opening its settings for review.`);
+        router.push(`/c/${finalSlug}/admin?tab=settings`);
+        return;
+      }
+      setAiCreateError("Could not find a free URL slug — edit the name and try again.");
+    } catch {
+      setAiCreateError("Failed to create contest");
+    } finally {
+      setAiCreating(false);
     }
   };
 
@@ -603,11 +683,13 @@ export default function PlatformAdminPage() {
   // -----------------------------------------------------------------------
   // Tabs config
   // -----------------------------------------------------------------------
-  const tabs: { id: TabType; label: string; icon: any }[] = [
+  const tabs: { id: TabType; label: string; icon: typeof Users }[] = [
     { id: "stats", label: "Overview", icon: BarChart3 },
     { id: "contests", label: "Contests", icon: Trophy },
     { id: "users", label: "Users", icon: Users },
   ];
+
+  const createPreset = getPreset(contestForm.contestType);
 
   const statusColors: Record<string, string> = {
     draft: "bg-yellow-500/20 text-yellow-400",
@@ -620,7 +702,7 @@ export default function PlatformAdminPage() {
   // Main render
   // -----------------------------------------------------------------------
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-4 sm:p-8">
       <BackgroundPattern />
 
       <div className="max-w-7xl mx-auto relative">
@@ -632,9 +714,9 @@ export default function PlatformAdminPage() {
           {/* Header */}
           <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
             <div className="flex items-center gap-4">
-              <Globe className="text-neon-purple" size={48} />
+              <Globe className="text-neon-purple shrink-0" size={40} />
               <div>
-                <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
                   Platform Admin
                 </h1>
                 <p className="text-gray-400 text-sm mt-1">
@@ -663,7 +745,7 @@ export default function PlatformAdminPage() {
           )}
 
           {/* Tabs */}
-          <div className="flex gap-2 mb-8">
+          <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
             {tabs.map((tab) => (
               <Button
                 key={tab.id}
@@ -722,6 +804,10 @@ export default function PlatformAdminPage() {
                       <Plus className="mr-2" size={16} />
                       Create New Contest
                     </Button>
+                    <Button onClick={() => { setActiveTab("contests"); setAiCreateError(""); setAiCreateOpen(true); }} variant="outline" className="w-full border-neon-purple/30 text-white bg-neon-purple/10 hover:bg-neon-purple/20 justify-start">
+                      <Sparkles className="mr-2" size={16} />
+                      Create with AI
+                    </Button>
                     <Button onClick={() => { setActiveTab("users"); setCreateUserOpen(true); }} variant="outline" className="w-full border-white/20 text-white bg-white/10 hover:bg-white/20 justify-start">
                       <Plus className="mr-2" size={16} />
                       Create New User
@@ -737,12 +823,13 @@ export default function PlatformAdminPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {contests.slice(0, 6).map((c) => (
                       <div key={c.id} className="bg-white/5 border border-white/10 rounded-lg p-4 hover:border-neon-purple/30 transition-colors">
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center justify-between gap-2 mb-2">
                           <h4 className="text-white font-semibold truncate">{c.name}</h4>
                           <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusColors[c.status] || statusColors.draft}`}>
                             {c.status}
                           </span>
                         </div>
+                        <ContestTypeBadge type={c.contestType} className="mb-2 inline-block" />
                         <p className="text-gray-400 text-sm mb-3 truncate">{c.description || "No description"}</p>
                         <div className="flex items-center gap-2">
                           <Link href={`/c/${c.slug}`}>
@@ -771,12 +858,22 @@ export default function PlatformAdminPage() {
           {/* ============================================================= */}
           {activeTab === "contests" && (
             <GlassCard className="p-6">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
                 <h3 className="text-2xl font-bold text-white">All Contests</h3>
-                <Button onClick={openCreateContest} className="bg-gradient-to-r from-neon-purple to-electric-blue">
-                  <Plus className="mr-2" size={18} />
-                  Create Contest
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => { setAiCreateError(""); setAiCreateOpen(true); }}
+                    variant="outline"
+                    className="border-neon-purple/30 text-white bg-neon-purple/10 hover:bg-neon-purple/20"
+                  >
+                    <Sparkles className="mr-2" size={18} />
+                    Create with AI
+                  </Button>
+                  <Button onClick={openCreateContest} className="bg-gradient-to-r from-neon-purple to-electric-blue">
+                    <Plus className="mr-2" size={18} />
+                    Create Contest
+                  </Button>
+                </div>
               </div>
               {contests.length === 0 ? (
                 <div className="text-center py-12">
@@ -793,6 +890,7 @@ export default function PlatformAdminPage() {
                     <TableHeader>
                       <TableRow className="border-white/10">
                         <TableHead className="text-gray-400">Name</TableHead>
+                        <TableHead className="text-gray-400">Type</TableHead>
                         <TableHead className="text-gray-400">Slug</TableHead>
                         <TableHead className="text-gray-400">Status</TableHead>
                         <TableHead className="text-gray-400">Domain</TableHead>
@@ -809,6 +907,9 @@ export default function PlatformAdminPage() {
                               <span className="block text-xs text-gray-500 truncate max-w-xs">{c.description}</span>
                             )}
                           </TableCell>
+                          <TableCell>
+                            <ContestTypeBadge type={c.contestType} />
+                          </TableCell>
                           <TableCell className="text-gray-400 font-mono text-sm">{c.slug}</TableCell>
                           <TableCell>
                             <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[c.status] || statusColors.draft}`}>
@@ -818,9 +919,16 @@ export default function PlatformAdminPage() {
                           <TableCell className="text-gray-400 text-xs">
                             {c.customDomain ? (
                               <span className="flex items-center gap-1">
-                                <span className="font-mono truncate max-w-[160px]">{c.customDomain}</span>
+                                <a
+                                  href={`https://${c.customDomain}/`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono truncate max-w-[160px] hover:text-electric-blue hover:underline"
+                                >
+                                  {c.customDomain}
+                                </a>
                                 {c.customDomainVerifiedAt ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[10px]">ok</span>
+                                  <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[10px]">verified</span>
                                 ) : (
                                   <span className="px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 text-[10px]">pending</span>
                                 )}
@@ -833,21 +941,23 @@ export default function PlatformAdminPage() {
                             {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "-"}
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-end gap-1">
                               <Link href={`/c/${c.slug}`}>
                                 <Button variant="ghost" size="sm" className="text-electric-blue hover:bg-electric-blue/10">
-                                  <ExternalLink size={16} />
+                                  <ExternalLink size={14} className="mr-1" />
+                                  Open
                                 </Button>
                               </Link>
                               <Link href={`/c/${c.slug}/admin`}>
                                 <Button variant="ghost" size="sm" className="text-neon-purple hover:bg-neon-purple/10">
-                                  <Settings size={16} />
+                                  <Settings size={14} className="mr-1" />
+                                  Admin
                                 </Button>
                               </Link>
-                              <Button onClick={() => openEditContest(c)} variant="ghost" size="sm" className="text-amber-400 hover:bg-amber-500/10">
+                              <Button onClick={() => openEditContest(c)} variant="ghost" size="sm" className="text-amber-400 hover:bg-amber-500/10" title="Quick edit">
                                 <Edit size={16} />
                               </Button>
-                              <Button onClick={() => handleDeleteContest(c.slug)} variant="ghost" size="sm" className="text-red-400 hover:bg-red-500/10">
+                              <Button onClick={() => handleDeleteContest(c.slug)} variant="ghost" size="sm" className="text-red-400 hover:bg-red-500/10" title="Delete">
                                 <Trash2 size={16} />
                               </Button>
                             </div>
@@ -954,8 +1064,8 @@ export default function PlatformAdminPage() {
                         : "border-white/10 bg-transparent text-gray-400 hover:bg-white/5"
                     }`}
                   >
-                    <div className="font-semibold">Blank contest</div>
-                    <div className="text-xs opacity-80 mt-1">Start from scratch with platform defaults.</div>
+                    <div className="font-semibold">New from a contest type</div>
+                    <div className="text-xs opacity-80 mt-1">Seeded with the type&apos;s defaults.</div>
                   </button>
                   <button
                     type="button"
@@ -1019,6 +1129,20 @@ export default function PlatformAdminPage() {
               </div>
             )}
 
+            {/* ---- Contest type (create-from-preset only) ---------------- */}
+            {!editingContest && !contestForm.cloneFromSlug && (
+              <div className="space-y-2">
+                <Label className="text-gray-200">Contest type</Label>
+                <ContestTypePicker value={contestForm.contestType} onChange={selectContestType} />
+              </div>
+            )}
+            {editingContest && (
+              <p className="text-sm text-gray-400 flex items-center gap-2 flex-wrap">
+                Type: <ContestTypeBadge type={editingContest.contestType} />
+                <span className="text-xs text-gray-500">Change the type, limits and full configuration from the contest&apos;s Admin → Settings.</span>
+              </p>
+            )}
+
             {/* ---- Core fields (both modes) ----------------------------- */}
             <div>
               <Label className="text-gray-200">Contest Name *</Label>
@@ -1033,7 +1157,7 @@ export default function PlatformAdminPage() {
                     heroTitle: contestForm.heroTitle || name,
                   });
                 }}
-                placeholder="AI Hackathon 2025"
+                placeholder={createPreset.heroTitle}
                 className="bg-white/5 border-white/10 text-white"
               />
             </div>
@@ -1042,7 +1166,7 @@ export default function PlatformAdminPage() {
               <Input
                 value={contestForm.slug}
                 onChange={(e) => setContestForm({ ...contestForm, slug: e.target.value })}
-                placeholder="ai-hackathon-2025"
+                placeholder={autoSlug(createPreset.heroTitle)}
                 className="bg-white/5 border-white/10 text-white font-mono"
               />
               <p className="text-gray-500 text-xs mt-1">URL will be: /c/{contestForm.slug || "..."}</p>
@@ -1056,7 +1180,7 @@ export default function PlatformAdminPage() {
                   <Textarea
                     value={contestForm.description}
                     onChange={(e) => setContestForm({ ...contestForm, description: e.target.value })}
-                    placeholder="A brief description of the contest..."
+                    placeholder={createPreset.description}
                     className="bg-white/5 border-white/10 text-white"
                   />
                 </div>
@@ -1077,7 +1201,7 @@ export default function PlatformAdminPage() {
                   <Input
                     value={contestForm.heroTitle}
                     onChange={(e) => setContestForm({ ...contestForm, heroTitle: e.target.value })}
-                    placeholder="Landing page headline"
+                    placeholder={contestForm.name || createPreset.heroTitle}
                     className="bg-white/5 border-white/10 text-white"
                   />
                 </div>
@@ -1086,24 +1210,26 @@ export default function PlatformAdminPage() {
                   <Textarea
                     value={contestForm.heroSubtitle}
                     onChange={(e) => setContestForm({ ...contestForm, heroSubtitle: e.target.value })}
-                    placeholder="Landing page subtitle"
+                    placeholder={createPreset.heroSubtitle}
                     className="bg-white/5 border-white/10 text-white"
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-gray-200">Max Teams</Label>
-                    <Input type="number" value={contestForm.maxTeams} onChange={(e) => setContestForm({ ...contestForm, maxTeams: parseInt(e.target.value) || 0 })} className="bg-white/5 border-white/10 text-white" />
+                {!editingContest && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <Label className="text-gray-200">Max Teams</Label>
+                      <Input type="number" min={1} value={contestForm.maxTeams} onChange={(e) => setLimit("maxTeams", parseInt(e.target.value) || 0)} className="bg-white/5 border-white/10 text-white" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-200">Max Approved</Label>
+                      <Input type="number" min={1} value={contestForm.maxApprovedTeams} onChange={(e) => setLimit("maxApprovedTeams", parseInt(e.target.value) || 0)} className="bg-white/5 border-white/10 text-white" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-200">Max Members/Team</Label>
+                      <Input type="number" min={1} value={contestForm.maxTeamMembers} onChange={(e) => setLimit("maxTeamMembers", parseInt(e.target.value) || 0)} className="bg-white/5 border-white/10 text-white" />
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-gray-200">Max Approved</Label>
-                    <Input type="number" value={contestForm.maxApprovedTeams} onChange={(e) => setContestForm({ ...contestForm, maxApprovedTeams: parseInt(e.target.value) || 0 })} className="bg-white/5 border-white/10 text-white" />
-                  </div>
-                  <div>
-                    <Label className="text-gray-200">Max Members/Team</Label>
-                    <Input type="number" value={contestForm.maxTeamMembers} onChange={(e) => setContestForm({ ...contestForm, maxTeamMembers: parseInt(e.target.value) || 0 })} className="bg-white/5 border-white/10 text-white" />
-                  </div>
-                </div>
+                )}
               </>
             )}
 
@@ -1147,8 +1273,13 @@ export default function PlatformAdminPage() {
             {!editingContest && !contestForm.cloneFromSlug && (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
                 <p className="text-blue-400 text-sm">
-                  The contest will be created with default scoring criteria, phase configuration, prizes, and role settings.
-                  You can customize these from the contest admin panel after creation.
+                  The contest is seeded from the <span className="font-semibold">{createPreset.label}</span> preset:{" "}
+                  {createPreset.scoringCriteria.length} scoring criteria, {createPreset.phaseConfig.length}{" "}
+                  {termPlural(createPreset.terminology, "phase").toLowerCase()}, submission fields, prizes and roles
+                  {createPreset.tracks.length > 0
+                    ? `, plus ${createPreset.tracks.length} ${termPlural(createPreset.terminology, "track").toLowerCase()}`
+                    : ""}
+                  . Customize everything from the contest admin panel after creation.
                 </p>
               </div>
             )}
@@ -1171,6 +1302,32 @@ export default function PlatformAdminPage() {
                   : "Create Contest"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create with AI Dialog */}
+      <Dialog open={aiCreateOpen} onOpenChange={(o) => { if (!aiCreating) setAiCreateOpen(o); }}>
+        <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-white flex items-center gap-2">
+              <Sparkles className="text-neon-purple" size={22} />
+              Create with AI
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-400">
+            Describe the event in plain words — audience, format, rounds, dates, categories, jury. The assistant drafts
+            the full contest; applying it creates a <span className="text-white">draft</span> contest and opens its
+            settings so you can review everything before going live.
+          </p>
+          {aiCreateError && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">{aiCreateError}</div>
+          )}
+          {aiCreating && (
+            <div className="flex items-center gap-2 text-sm text-gray-300">
+              <Loader2 className="animate-spin" size={16} /> Creating contest…
+            </div>
+          )}
+          {aiCreateOpen && <AiContestSetup mode="create" onApply={handleAiDraft} />}
         </DialogContent>
       </Dialog>
 

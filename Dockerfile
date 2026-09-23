@@ -1,6 +1,10 @@
 # Multi-stage Dockerfile for Next.js 16 Application
-#FROM node:20-alpine AS base
-FROM 163742846785.dkr.ecr.ap-south-1.amazonaws.com/node-20-alpine@sha256:1565ec2a76d08d442a300c142d9e513e51a76acbfca3c67ca385ab76bc9b9a1f AS base
+#
+# Base image is a build arg so each environment can pick its registry:
+#   TeamLease AWS (prod):  --build-arg NODE_IMAGE=163742846785.dkr.ecr.ap-south-1.amazonaws.com/node-20-alpine@sha256:1565ec2a76d08d442a300c142d9e513e51a76acbfca3c67ca385ab76bc9b9a1f
+#   Hetzner / local:       default public node:20-alpine
+ARG NODE_IMAGE=node:20-alpine
+FROM ${NODE_IMAGE} AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -30,9 +34,9 @@ COPY . .
 # Set environment variables for build
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
-# Dummy DATABASE_URL for build time (actual URL provided at runtime)
-# ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db"
-ENV DATABASE_URL="postgresql://hackathon:2025Hackathon@10.0.3.146:5432/tle_hackathon"
+# Dummy DATABASE_URL for build time (actual URL provided at runtime).
+# Never put a real credential here — it is baked into image layers.
+ENV DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build"
 ENV AUTH_SECRET="build-time-secret-will-be-replaced-at-runtime"
 ENV NEXTAUTH_URL="http://localhost:3000"
 
@@ -53,6 +57,11 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+
+# Local upload storage (used when AWS_S3_BUCKET is not set). Mount a volume
+# here so uploaded decks/screenshots survive redeploys.
+ENV UPLOADS_DIR=/app/uploads
+RUN mkdir -p /app/uploads
 
 # Set permissions
 RUN chown -R nextjs:nodejs /app

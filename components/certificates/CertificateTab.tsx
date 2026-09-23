@@ -36,6 +36,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { CertificateTemplate, WinningTeam, TeamMember } from "./types";
+import { useOptionalContestConfig } from "@/lib/use-optional-contest";
 
 interface CertificateTabProps {
   slug?: string;
@@ -60,6 +61,10 @@ const RANK_BG = {
 };
 
 export default function CertificateTab({ slug, setError, setSuccess }: CertificateTabProps) {
+  // Default event name: the current contest (inside /c/[slug]) or the
+  // contest-type preset's certificate wording.
+  const { contest, preset } = useOptionalContestConfig();
+  const defaultEventName = contest?.name || preset.certificate.eventName;
   // Use contest-scoped APIs when slug is provided, legacy APIs otherwise
   const apiBase = slug ? `/api/c/${slug}/certificates` : "/api/certificates";
   const [loading, setLoading] = useState(true);
@@ -78,7 +83,7 @@ export default function CertificateTab({ slug, setError, setSuccess }: Certifica
     isDefault: false,
     titleText: "Certificate of Achievement",
     subtitleText: "This certificate is awarded to",
-    eventName: "AI Vibe Coding Challenge 2024",
+    eventName: defaultEventName,
     footerText: "",
     signatureName: "",
     signatureTitle: "",
@@ -230,7 +235,7 @@ export default function CertificateTab({ slug, setError, setSuccess }: Certifica
       isDefault: false,
       titleText: "Certificate of Achievement",
       subtitleText: "This certificate is awarded to",
-      eventName: "AI Vibe Coding Challenge 2024",
+      eventName: defaultEventName,
       footerText: "",
       signatureName: "",
       signatureTitle: "",
@@ -622,7 +627,7 @@ export default function CertificateTab({ slug, setError, setSuccess }: Certifica
                 <Input
                   value={templateForm.eventName}
                   onChange={(e) => setTemplateForm({ ...templateForm, eventName: e.target.value })}
-                  placeholder="AI Vibe Coding Challenge 2024"
+                  placeholder={defaultEventName}
                   className="bg-white/5 border-white/10 text-white"
                 />
               </div>

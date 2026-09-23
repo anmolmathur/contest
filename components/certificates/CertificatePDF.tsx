@@ -308,6 +308,7 @@ export const CertificateDocument = ({
   rank,
   rankLabel,
   template,
+  bodyText,
 }: CertificatePDFProps) => {
   // Format date with superscript-style suffix
   const formatDateWithSuffix = (date: Date) => {
@@ -323,9 +324,10 @@ export const CertificateDocument = ({
   const formattedDate = formatDateWithSuffix(new Date());
 
   // Build description text
+  const recognition = (bodyText?.trim() || "in recognition of outstanding contribution, innovation and excellence.")
+    .replace(/^in recognition/i, "In recognition");
   const description = template.footerText ||
-    `For outstanding performance and exceptional contribution in the ${template.eventName}. ` +
-    `This achievement reflects dedication to innovation and excellence in AI-powered development.`;
+    `For outstanding performance and exceptional contribution in the ${template.eventName}. ${recognition}`;
 
   return (
     <Document>

@@ -1,6 +1,8 @@
 "use client";
 
-import { useContest } from "@/lib/contest-context";
+import { useContest, useContestConfig } from "@/lib/contest-context";
+import { fieldsForPhase } from "@/lib/submission-fields";
+import type { SubmissionField } from "@/lib/contest-config";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import BackgroundPattern from "@/components/BackgroundPattern";
@@ -16,10 +18,43 @@ import {
   CheckCircle2,
   Calendar,
   Trophy,
+  Gauge,
+  Upload,
 } from "lucide-react";
+
+const FIELD_TYPE_LABELS: Record<SubmissionField["type"], string> = {
+  text: "Short text",
+  textarea: "Written answer",
+  url: "Link",
+  urlList: "Links",
+  file: "File upload",
+  fileList: "File uploads",
+  select: "Choice",
+};
+
+function formatsOf(f: SubmissionField): string | null {
+  if (f.type !== "file" && f.type !== "fileList") return null;
+  const ext = (f.accept ?? "")
+    .split(",")
+    .map((x) => x.trim().replace(/^\./, "").toUpperCase())
+    .filter(Boolean);
+  const parts: string[] = [];
+  if (ext.length) parts.push(ext.join(", "));
+  if (f.maxSizeMb) parts.push(`max ${f.maxSizeMb} MB`);
+  return parts.length ? parts.join(" · ") : null;
+}
 
 export default function ContestRulesPage() {
   const { contest } = useContest();
+  const { t, tp, scale, submissionFields } = useContestConfig();
+  const trackTerm = t("track");
+  const tracksHeading = trackTerm === "Track" ? "Available Tracks" : `Competition ${tp("track")}`;
+  const scaleSteps = Math.floor((scale.max - scale.min) / scale.step) + 1;
+  const scaleLabels = [...(scale.labels ?? [])].sort((a, b) => b.max - a.max);
+  const submissionRounds = (contest.phaseConfig ?? [])
+    .filter((p) => p.maxPoints > 0)
+    .map((p) => ({ phase: p, fields: fieldsForPhase(submissionFields, p.phase) }))
+    .filter((r) => r.fields.length > 0);
 
   // Parse markdown-like text into paragraphs
   const renderTextContent = (text: string) => {
@@ -96,17 +131,17 @@ export default function ContestRulesPage() {
       <BackgroundPattern />
 
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 px-4 md:px-8">
+      <section className="relative pt-20 sm:pt-32 pb-12 sm:pb-20 px-4 md:px-8">
         <div className="max-w-6xl mx-auto text-center">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
           >
-            <h1 className="text-6xl md:text-8xl font-black mb-6 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+            <h1 className="text-4xl sm:text-6xl md:text-8xl font-black mb-6 break-words bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
               Competition Details & Rules
             </h1>
-            <p className="text-xl md:text-2xl text-gray-300 max-w-3xl mx-auto">
+            <p className="text-lg sm:text-xl md:text-2xl text-gray-300 max-w-3xl mx-auto">
               Everything you need to know about{" "}
               <span className="text-white font-semibold">{contest.name}</span>
             </p>
@@ -124,14 +159,14 @@ export default function ContestRulesPage() {
             viewport={{ once: true }}
             className="max-w-6xl mx-auto"
           >
-            <GlassCard className="p-8 md:p-12" glowColor="purple">
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="purple">
               <div className="flex items-start gap-4 mb-4">
                 <Target
                   className="text-neon-purple mt-1 flex-shrink-0"
-                  size={40}
+                  size={32}
                 />
                 <div>
-                  <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                  <h2 className="text-3xl md:text-5xl font-bold break-words mb-6 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
                     Purpose & Overview
                   </h2>
                   <div>{renderTextContent(contest.rulesContent!)}</div>
@@ -152,13 +187,13 @@ export default function ContestRulesPage() {
             viewport={{ once: true }}
             className="max-w-6xl mx-auto"
           >
-            <GlassCard className="p-8 md:p-12" glowColor="blue">
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="blue">
               <div className="flex items-start gap-4 mb-6">
                 <Users
                   className="text-electric-blue mt-1 flex-shrink-0"
-                  size={40}
+                  size={32}
                 />
-                <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                <h2 className="text-3xl md:text-5xl font-bold break-words bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
                   Eligibility & Team Structure
                 </h2>
               </div>
@@ -233,19 +268,19 @@ export default function ContestRulesPage() {
             viewport={{ once: true }}
             className="max-w-6xl mx-auto"
           >
-            <GlassCard className="p-8 md:p-12" glowColor="pink">
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="pink">
               <div className="flex items-start gap-4 mb-6">
                 <Briefcase
                   className="text-hot-pink mt-1 flex-shrink-0"
-                  size={40}
+                  size={32}
                 />
                 <div>
-                  <h2 className="text-4xl md:text-5xl font-bold mb-2 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-                    Available Tracks
+                  <h2 className="text-3xl md:text-5xl font-bold break-words mb-2 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                    {tracksHeading}
                   </h2>
                   <p className="text-gray-400 text-lg">
-                    {contest.tracks.length} track
-                    {contest.tracks.length !== 1 ? "s" : ""} available
+                    {contest.tracks.length}{" "}
+                    {(contest.tracks.length === 1 ? trackTerm : tp("track")).toLowerCase()} available
                     {contest.maxApprovedTeams > 0 && (
                       <span className="text-yellow-400 font-semibold ml-2">
                         (Max {contest.maxApprovedTeams} approved teams)
@@ -296,14 +331,14 @@ export default function ContestRulesPage() {
             viewport={{ once: true }}
             className="max-w-6xl mx-auto"
           >
-            <GlassCard className="p-8 md:p-12" glowColor="purple">
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="purple">
               <div className="flex items-start gap-4 mb-6">
                 <Calendar
                   className="text-neon-purple mt-1 flex-shrink-0"
-                  size={40}
+                  size={32}
                 />
-                <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-                  Timeline & Phases
+                <h2 className="text-3xl md:text-5xl font-bold break-words bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                  Timeline &amp; {tp("phase")}
                 </h2>
               </div>
 
@@ -317,11 +352,11 @@ export default function ContestRulesPage() {
                     viewport={{ once: true }}
                     className="bg-white/5 border border-white/10 rounded-lg p-6 hover:border-neon-purple/30 transition-all"
                   >
-                    <div className="flex items-start justify-between mb-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
                       <div>
                         <div className="flex items-center gap-3 mb-1">
                           <span className="inline-block bg-gradient-to-r from-neon-purple to-electric-blue text-white font-bold px-3 py-1 rounded-full text-sm">
-                            Phase {phase.phase}
+                            {t("phase")} {phase.phase}
                           </span>
                           {phase.maxPoints > 0 && (
                             <span className="text-yellow-400 font-semibold text-sm">
@@ -334,7 +369,7 @@ export default function ContestRulesPage() {
                         </h3>
                       </div>
                       {(phase.startDate || phase.endDate) && (
-                        <span className="text-gray-400 text-sm whitespace-nowrap">
+                        <span className="text-gray-400 text-sm sm:whitespace-nowrap">
                           {phase.startDate && phase.endDate
                             ? `${new Date(phase.startDate).toLocaleDateString()} - ${new Date(phase.endDate).toLocaleDateString()}`
                             : phase.startDate
@@ -398,6 +433,79 @@ export default function ContestRulesPage() {
         </section>
       )}
 
+      {/* What to submit, per round (from the contest's submission fields) */}
+      {submissionRounds.length > 0 && (
+        <section className="py-12 px-4 md:px-8 relative">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            viewport={{ once: true }}
+            className="max-w-6xl mx-auto"
+          >
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="purple">
+              <div className="flex items-start gap-4 mb-6">
+                <Upload className="text-neon-purple mt-1 flex-shrink-0" size={32} />
+                <div className="min-w-0">
+                  <h2 className="text-3xl md:text-5xl font-bold break-words mb-2 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                    What to Submit
+                  </h2>
+                  <p className="text-gray-400">
+                    Your {t("team").toLowerCase()}&apos;s {t("submission").toLowerCase()} for each{" "}
+                    {t("phase").toLowerCase()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {submissionRounds.map(({ phase, fields }) => (
+                  <div key={phase.phase} className="rounded-lg border border-white/10 bg-white/5 p-4 sm:p-6">
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <span className="inline-block rounded-full bg-gradient-to-r from-neon-purple to-electric-blue px-3 py-1 text-sm font-bold text-white">
+                        {t("phase")} {phase.phase}
+                      </span>
+                      <h3 className="text-lg font-bold text-white">{phase.name}</h3>
+                    </div>
+                    <ul className="divide-y divide-white/10">
+                      {fields.map((f) => {
+                        const formats = formatsOf(f);
+                        return (
+                          <li key={f.key} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:gap-4">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-white">{f.label}</div>
+                              {f.helpText && <p className="mt-0.5 text-sm text-gray-400">{f.helpText}</p>}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-xs sm:justify-end">
+                              <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-gray-300">
+                                {FIELD_TYPE_LABELS[f.type] ?? f.type}
+                              </span>
+                              {formats && (
+                                <span className="rounded-full border border-electric-blue/30 bg-electric-blue/10 px-2 py-0.5 text-blue-200">
+                                  {formats}
+                                </span>
+                              )}
+                              <span
+                                className={`rounded-full px-2 py-0.5 font-semibold ${
+                                  f.required
+                                    ? "border border-hot-pink/40 bg-hot-pink/15 text-pink-200"
+                                    : "border border-white/10 bg-white/5 text-gray-400"
+                                }`}
+                              >
+                                {f.required ? "Required" : "Optional"}
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          </motion.div>
+        </section>
+      )}
+
       {/* Deliverables Section */}
       {hasDeliverables && (
         <section className="py-12 px-4 md:px-8 relative">
@@ -408,13 +516,13 @@ export default function ContestRulesPage() {
             viewport={{ once: true }}
             className="max-w-6xl mx-auto"
           >
-            <GlassCard className="p-8 md:p-12" glowColor="blue">
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="blue">
               <div className="flex items-start gap-4 mb-6">
                 <FileCheck
                   className="text-electric-blue mt-1 flex-shrink-0"
-                  size={40}
+                  size={32}
                 />
-                <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                <h2 className="text-3xl md:text-5xl font-bold break-words bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
                   Required Deliverables
                 </h2>
               </div>
@@ -434,15 +542,15 @@ export default function ContestRulesPage() {
             viewport={{ once: true }}
             className="max-w-6xl mx-auto"
           >
-            <GlassCard className="p-8 md:p-12" glowColor="pink">
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="pink">
               <div className="flex items-start gap-4 mb-6">
                 <Scale
                   className="text-hot-pink mt-1 flex-shrink-0"
-                  size={40}
+                  size={32}
                 />
                 <div>
-                  <h2 className="text-4xl md:text-5xl font-bold mb-2 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
-                    Judging Criteria
+                  <h2 className="text-3xl md:text-5xl font-bold break-words mb-2 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                    {t("judge")} Evaluation Criteria
                   </h2>
                   <p className="text-gray-300 text-lg">
                     (Total Weight: {Math.round(totalWeight * 100)}%)
@@ -455,7 +563,7 @@ export default function ContestRulesPage() {
                   <thead>
                     <tr className="border-b border-white/20">
                       <th className="text-left py-4 px-4 text-white font-bold">
-                        Category
+                        Criterion
                       </th>
                       <th className="text-center py-4 px-4 text-white font-bold">
                         Weight
@@ -491,6 +599,50 @@ export default function ContestRulesPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Scoring scale / rubric */}
+              <div className="mt-10">
+                <div className="mb-4 flex items-center gap-3">
+                  <Gauge className="text-electric-blue flex-shrink-0" size={24} />
+                  <h3 className="text-2xl font-bold text-white">Scoring Scale</h3>
+                </div>
+                <p className="mb-4 text-gray-300">
+                  Each criterion is scored from{" "}
+                  <span className="font-semibold text-white">{scale.min}</span> to{" "}
+                  <span className="font-semibold text-white">{scale.max}</span>
+                  {scale.step !== 1 ? ` in steps of ${scale.step}` : ""}. Weighted scores are normalised to 100 and
+                  scaled to each {t("phase").toLowerCase()}&apos;s maximum points.
+                </p>
+                {scaleLabels.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    {scaleLabels.map((l, i) => (
+                      <div
+                        key={`${l.min}-${l.max}`}
+                        className="rounded-lg border border-white/10 bg-white/5 p-3 text-center"
+                        style={{ borderTopColor: `hsl(${140 - i * 30} 70% 50% / 0.7)`, borderTopWidth: 3 }}
+                      >
+                        <div className="text-2xl font-black tabular-nums text-white">
+                          {l.min === l.max ? l.min : `${l.min}–${l.max}`}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-gray-300">{l.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  scaleSteps <= 11 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {Array.from({ length: scaleSteps }, (_, i) => scale.min + i * scale.step).map((v) => (
+                        <span
+                          key={v}
+                          className="flex h-9 min-w-9 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 text-sm font-semibold text-gray-200"
+                        >
+                          {v}
+                        </span>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
             </GlassCard>
           </motion.div>
         </section>
@@ -506,13 +658,13 @@ export default function ContestRulesPage() {
             viewport={{ once: true }}
             className="max-w-6xl mx-auto"
           >
-            <GlassCard className="p-8 md:p-12" glowColor="gold">
+            <GlassCard className="p-5 sm:p-8 md:p-12" glowColor="gold">
               <div className="flex items-start gap-4 mb-6">
                 <Trophy
                   className="text-yellow-500 mt-1 flex-shrink-0"
-                  size={40}
+                  size={32}
                 />
-                <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+                <h2 className="text-3xl md:text-5xl font-bold break-words bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
                   Prizes
                 </h2>
               </div>
@@ -577,7 +729,7 @@ export default function ContestRulesPage() {
           className="max-w-4xl mx-auto text-center"
         >
           <GlassCard className="p-12">
-            <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
+            <h2 className="text-3xl md:text-5xl font-bold break-words mb-6 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent">
               Ready to Compete?
             </h2>
             <p className="text-xl text-gray-300 mb-8">

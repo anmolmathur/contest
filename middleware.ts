@@ -73,7 +73,11 @@ export default auth(async (req) => {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const loginUrl = new URL("/login", req.url);
+    // Build the redirect from the host the request actually arrived on (a
+    // contest's custom domain or the platform host), not a configured base URL.
+    const fwdHost = (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "").split(",")[0].trim();
+    const proto = (req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "")).split(",")[0].trim();
+    const loginUrl = fwdHost ? new URL(`${proto}://${fwdHost}/login`) : new URL("/login", req.url);
     loginUrl.searchParams.set("callbackUrl", `${pathname}${search ?? ""}`);
     return NextResponse.redirect(loginUrl);
   }
@@ -83,5 +87,8 @@ export default auth(async (req) => {
 });
 
 export const config = {
+  // Node.js runtime: the custom-domain lookup queries Postgres, which the Edge
+  // runtime can't do (no TCP sockets).
+  runtime: "nodejs",
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
 };
