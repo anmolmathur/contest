@@ -150,6 +150,7 @@ export function extendedPayload(f: ExtendedConfigForm): Record<string, unknown> 
   const clean = (s: string) => (s.trim() ? s.trim() : null);
   const settings: SettingsForm = { ...f.settings };
   if (typeof settings.theme === "string" && !settings.theme.trim()) delete settings.theme;
+  if (settings.colorMode !== "light" && settings.colorMode !== "dark") delete settings.colorMode;
   return {
     contestType: f.contestType,
     submissionFields: f.submissionFields.map((field) => {

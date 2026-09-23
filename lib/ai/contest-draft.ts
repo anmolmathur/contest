@@ -75,7 +75,7 @@ export interface DraftFaq {
 /** Settings the setup assistant may touch (never resultsPublished). */
 export type DraftSettings = Pick<
   ContestSettings,
-  "theme" | "exclusiveTracks" | "showcaseEnabled" | "feedbackVisibility" | "assistantEnabled"
+  "theme" | "exclusiveTracks" | "showcaseEnabled" | "feedbackVisibility" | "assistantEnabled" | "colorMode"
 > &
   Record<string, unknown>;
 
@@ -551,6 +551,7 @@ function sanitizeSettings(v: unknown): DraftSettings | undefined {
   if (v.feedbackVisibility === "never" || v.feedbackVisibility === "after_results") {
     out.feedbackVisibility = v.feedbackVisibility;
   }
+  if (v.colorMode === "light" || v.colorMode === "dark") out.colorMode = v.colorMode;
   return out;
 }
 

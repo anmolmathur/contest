@@ -73,6 +73,23 @@ export function ContestSettingsFlags({
             </SelectContent>
           </Select>
         </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+          <Label className="text-sm font-medium text-gray-200">Default appearance</Label>
+          <Select
+            value={settings.colorMode ?? "auto"}
+            onValueChange={(v) => set({ colorMode: v === "auto" ? undefined : (v as "light" | "dark") })}
+          >
+            <SelectTrigger className={`${inputCls} mt-2 w-full`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">By contest type (hackathon dark, symposium light)</SelectItem>
+              <SelectItem value="light">Light</SelectItem>
+              <SelectItem value="dark">Dark</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-[11px] text-gray-500">Visitors can still switch with the sun/moon button.</p>
+        </div>
         <div className="md:col-span-2">
           <Label className="text-xs text-gray-300">Theme line</Label>
           <Input

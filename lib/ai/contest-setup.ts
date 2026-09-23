@@ -52,7 +52,7 @@ type ContestDraft = {
              kind: "keynote" | "panel" | "expert_session" | "startup_story" | "workshop" | "pitch" | "networking" | "ceremony" | "break" | "other";
              speakerIds?: string[]; venue?: string; description?: string }[];   // day "yyyy-mm-dd", times "HH:mm"
   speakers?: { id: string; name: string; title?: string; org?: string; bio?: string; roles: ("speaker" | "panelist" | "jury" | "mentor" | "host")[] }[];
-  settings?: { theme?: string; exclusiveTracks?: boolean; showcaseEnabled?: boolean; feedbackVisibility?: "never" | "after_results"; assistantEnabled?: boolean };
+  settings?: { theme?: string; exclusiveTracks?: boolean; showcaseEnabled?: boolean; feedbackVisibility?: "never" | "after_results"; assistantEnabled?: boolean; colorMode?: "light" | "dark" /* default appearance; hackathons usually dark, symposiums light */ };
 };`.trim();
 
 function presetExample(p: ContestPreset) {

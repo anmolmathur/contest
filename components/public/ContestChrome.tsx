@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /** Routes that render full-bleed with no nav / banner / assistant (projector). */
 export function isChromelessPath(pathname: string | null): boolean {
@@ -13,6 +14,17 @@ export function isChromelessPath(pathname: string | null): boolean {
 export function HideOnStage({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   if (isChromelessPath(pathname)) return null;
+  return <>{children}</>;
+}
+
+/**
+ * The contest assistant answers questions about the contest; it has no role
+ * on the live-finale operating screens (stage, jury console, control room),
+ * where its floating button would also cover the jury's submit bar.
+ */
+export function HideOnLiveScreens({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  if (!pathname || isChromelessPath(pathname) || /\/(jury|live)\/?$/.test(pathname)) return null;
   return <>{children}</>;
 }
 
@@ -72,6 +84,7 @@ export function ContestNav({ slug, name, showAgenda, showShowcase }: NavProps) {
             );
           })}
         </div>
+        <ThemeToggle />
       </div>
     </nav>
   );

@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { ContestProvider } from "@/lib/contest-context";
 import { ContestStatusBanner } from "@/components/ContestStatusBanner";
 import { AssistantWidget } from "@/components/AssistantWidget";
-import { ContestNav, HideOnStage } from "@/components/public/ContestChrome";
+import { ContestNav, HideOnLiveScreens, HideOnStage } from "@/components/public/ContestChrome";
 import { resolveSettings } from "@/lib/contest-config";
 import type { Metadata } from "next";
 
@@ -136,11 +136,11 @@ export default async function ContestLayout({
         {children}
       </ContestProvider>
       {/* AI assistant — suppressed for drafts (avoid leaking unfinished rules),
-          when the contest disables it, and on the projector stage view. */}
+          when the contest disables it, and on the live-finale screens. */}
       {settings.assistantEnabled && contest.status !== "draft" && (
-        <HideOnStage>
+        <HideOnLiveScreens>
           <AssistantWidget contestSlug={contest.slug} />
-        </HideOnStage>
+        </HideOnLiveScreens>
       )}
     </div>
   );

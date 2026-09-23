@@ -131,6 +131,8 @@ export interface ContestSettings {
   assistantEnabled?: boolean;
   /** Theme line displayed on the landing page (e.g. symposium theme). */
   theme?: string;
+  /** Default colour mode for visitors (they can still toggle). Unset → by contest type. */
+  colorMode?: "light" | "dark";
 }
 
 export function resolveSettings(raw: unknown): ContestSettings {
@@ -142,6 +144,7 @@ export function resolveSettings(raw: unknown): ContestSettings {
     showcaseEnabled: !!s.showcaseEnabled,
     assistantEnabled: s.assistantEnabled !== false,
     theme: s.theme ?? undefined,
+    colorMode: s.colorMode === "light" || s.colorMode === "dark" ? s.colorMode : undefined,
   };
 }
 

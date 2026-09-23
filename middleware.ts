@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { resolveHostToSlug, customDomainsEnabled } from "@/lib/tenant-resolver";
+import { PLATFORM_THEME_SCOPE } from "@/lib/theme";
 
 // Paths that are never rewritten onto a contest when served from a custom
 // domain: they are platform-level (auth, APIs, platform console, assets).
@@ -60,9 +61,11 @@ export default auth(async (req) => {
   // still applies to the rewritten path.
   let effectivePath = pathname;
   let rewriteTo: URL | null = null;
+  let hostSlug: string | null = null;
   if (customDomainsEnabled()) {
     const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
     const slug = await resolveHostToSlug(host);
+    hostSlug = slug;
     if (slug && !NO_REWRITE_PREFIXES.some((p) => pathname.startsWith(p))) {
       effectivePath = `/c/${slug}${pathname === "/" ? "" : pathname}`;
       rewriteTo = new URL(`${effectivePath}${search ?? ""}`, req.url);
@@ -82,9 +85,25 @@ export default auth(async (req) => {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (rewriteTo) return NextResponse.rewrite(rewriteTo);
-  return NextResponse.next();
+  // Tell the root layout which contest this page belongs to, so it can pick
+  // the contest's light/dark theme server-side (see lib/theme.ts).
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-theme-scope", themeScopeFor(effectivePath, req.nextUrl.searchParams, hostSlug));
+  if (rewriteTo) return NextResponse.rewrite(rewriteTo, { request: { headers: requestHeaders } });
+  return NextResponse.next({ request: { headers: requestHeaders } });
 });
+
+/** Contest slug for /c/<slug>/… (or the custom-domain contest), auth pages opened from a contest, else "platform". */
+function themeScopeFor(path: string, params: URLSearchParams, hostSlug: string | null): string {
+  const m = path.match(/^\/c\/([^/?#]+)/);
+  if (m) return m[1];
+  if (/^\/(login|register|forgot-password|reset-password)/.test(path)) {
+    const cb = params.get("callbackUrl") ?? "";
+    const fromCb = cb.match(/^\/c\/([^/?#]+)/);
+    if (fromCb) return fromCb[1];
+  }
+  return hostSlug ?? PLATFORM_THEME_SCOPE;
+}
 
 export const config = {
   // Node.js runtime: the custom-domain lookup queries Postgres, which the Edge

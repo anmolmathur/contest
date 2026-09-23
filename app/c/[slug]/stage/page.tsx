@@ -47,7 +47,7 @@ export default function StagePage() {
       className="fixed inset-0 z-[70] flex flex-col overflow-hidden text-white"
       style={{
         background:
-          "radial-gradient(ellipse at 20% 0%, rgba(124,58,237,0.28), transparent 55%), radial-gradient(ellipse at 90% 100%, rgba(219,39,119,0.18), transparent 55%), radial-gradient(ellipse at 60% 50%, rgba(37,99,235,0.12), transparent 60%), #04050b",
+          "var(--stage-bg)", // themed in app/globals.css (dark projector / light symposium)
       }}
     >
       {/* Top bar */}
@@ -223,7 +223,7 @@ function Pitch({ data, now, juryTerm }: { data: LivePayload; now: number; juryTe
           <div className="flex justify-center lg:justify-end">
             <div className="relative" style={{ width: "clamp(10rem, 22vw, 30rem)", aspectRatio: "1" }}>
               <svg viewBox="0 0 100 100" className="absolute inset-0 -rotate-90">
-                <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+                <circle cx="50" cy="50" r="45" fill="none" style={{ stroke: "var(--stage-ring)" }} strokeWidth="6" />
                 <circle
                   cx="50"
                   cy="50"
