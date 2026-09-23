@@ -203,9 +203,13 @@ export async function POST(req: NextRequest) {
   let draft: ContestDraft | null = null;
   let warnings: string[] = [];
   if (!outOfScope && out.draft && typeof out.draft === "object" && !Array.isArray(out.draft)) {
-    const res = sanitizeDraft(out.draft, sanitizeCtx);
+    const merged =
+      mode === "edit" && contest
+        ? mergePartialLists(out.draft as Record<string, unknown>, contest)
+        : { draft: out.draft as Record<string, unknown>, notes: [] as string[] };
+    const res = sanitizeDraft(merged.draft, sanitizeCtx);
     draft = res.draft;
-    warnings = res.warnings;
+    warnings = [...merged.notes, ...res.warnings];
 
     // Slug: valid format + suggest a free one.
     if (mode === "create") {
@@ -262,5 +266,52 @@ function normaliseModelOutput(raw: unknown): Record<string, unknown> {
     console.warn("[ai/contest-setup] unexpected model output keys:", Object.keys(out).slice(0, 20));
   }
   return out;
+}
+
+// In edit mode the model sometimes returns only the changed items of a list
+// (e.g. just the finale round) even though it is asked for the full list.
+// Applying that as-is would silently drop the other items, so a list SHORTER
+// than the stored one is merged into it by key: matching items are replaced,
+// new ones appended. (Removing items is done in the form, not via AI.)
+const LIST_KEYS: Record<string, (x: Record<string, unknown>) => string | undefined> = {
+  phaseConfig: (x) => (x.phase != null ? String(x.phase) : undefined),
+  scoringCriteria: (x) => (x.key as string) ?? (x.name as string),
+  submissionFields: (x) => x.key as string,
+  roleConfig: (x) => x.role as string,
+  prizes: (x) => (x.rank != null ? String(x.rank) : undefined),
+  faqConfig: (x) => (typeof x.question === "string" ? x.question.trim().toLowerCase() : undefined),
+  agenda: (x) => x.id as string,
+  speakers: (x) => x.id as string,
+  tracks: (x) => (typeof x.name === "string" ? x.name.trim().toLowerCase() : undefined),
+};
+
+function mergePartialLists(
+  draft: Record<string, unknown>,
+  contest: Record<string, unknown> & { tracks?: Array<{ name: string; description: string | null; icon: string | null }> },
+): { draft: Record<string, unknown>; notes: string[] } {
+  const out = { ...draft };
+  const notes: string[] = [];
+  for (const [field, keyOf] of Object.entries(LIST_KEYS)) {
+    const next = draft[field];
+    const stored = field === "tracks" ? contest.tracks : contest[field];
+    if (!Array.isArray(next) || !Array.isArray(stored) || next.length >= stored.length) continue;
+    const merged = (stored as Array<Record<string, unknown>>).map((x) => ({ ...x }));
+    let replaced = 0;
+    let added = 0;
+    for (const item of next as Array<Record<string, unknown>>) {
+      const k = item && typeof item === "object" ? keyOf(item) : undefined;
+      const idx = k === undefined ? -1 : merged.findIndex((m) => keyOf(m) === k);
+      if (idx >= 0) {
+        merged[idx] = { ...merged[idx], ...item };
+        replaced++;
+      } else {
+        merged.push(item);
+        added++;
+      }
+    }
+    out[field] = merged;
+    notes.push(`Merged the suggested ${field} changes into the existing list (${replaced} updated, ${added} added).`);
+  }
+  return { draft: out, notes };
 }
 
