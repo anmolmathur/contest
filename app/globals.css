@@ -425,3 +425,68 @@ html[data-theme="light"] {
     radial-gradient(ellipse at 60% 50%, rgba(37, 99, 235, 0.08), transparent 60%), #f7f7fb;
   --stage-ring: rgba(15, 23, 42, 0.08);
 }
+
+/* --------------------------------------------------------------------------
+   Results page (app/c/[slug]/results) — backdrop, accents and podium medals.
+   Dark values reproduce the original design exactly; light is its own design
+   (tinted white cards, deep gold / slate / bronze numerals for contrast).
+   -------------------------------------------------------------------------- */
+:root,
+html[data-theme="dark"] {
+  --results-bg: radial-gradient(ellipse at top, rgba(124, 58, 237, 0.18), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(37, 99, 235, 0.12), transparent 60%), #05060d;
+  --results-accent-1: #a78bfa;
+  --results-accent-2: #60a5fa;
+  --results-accent-3: #f472b6;
+  --podium-1-number: linear-gradient(135deg, #fde047, #f59e0b);
+  --podium-2-number: linear-gradient(135deg, #e5e7eb, #94a3b8);
+  --podium-3-number: linear-gradient(135deg, #e5e7eb, #94a3b8);
+  --podium-1-bar: linear-gradient(90deg, #fbbf24, #f59e0b);
+  --podium-2-bar: linear-gradient(90deg, #cbd5e1, #94a3b8);
+  --podium-3-bar: linear-gradient(90deg, #d97706, #92400e);
+  --podium-shimmer-opacity: 0.5;
+}
+html[data-theme="light"] {
+  --results-bg: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(124, 58, 237, 0.1), transparent 70%),
+    radial-gradient(ellipse at bottom right, rgba(37, 99, 235, 0.07), transparent 60%), #f6f7fb;
+  --results-accent-1: #6d28d9;
+  --results-accent-2: #2563eb;
+  --results-accent-3: #db2777;
+  --podium-1-number: linear-gradient(135deg, #d97706, #b45309);
+  --podium-2-number: linear-gradient(135deg, #64748b, #334155);
+  --podium-3-number: linear-gradient(135deg, #c2410c, #9a3412);
+  --podium-1-bar: linear-gradient(90deg, #fbbf24, #d97706);
+  --podium-2-bar: linear-gradient(90deg, #94a3b8, #475569);
+  --podium-3-bar: linear-gradient(90deg, #fb923c, #c2410c);
+  --podium-shimmer-opacity: 0.35;
+}
+
+/* Light podium: white cards with a medal-coloured wash, soft elevation. */
+html[data-theme="light"] .podium-card {
+  background-color: #ffffff;
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 18px 40px -20px rgba(15, 23, 42, 0.25);
+}
+html[data-theme="light"] .podium-1 {
+  background-image: linear-gradient(180deg, rgba(251, 191, 36, 0.22), rgba(253, 230, 138, 0.1) 45%, rgba(255, 255, 255, 0) 80%);
+  border-color: rgba(217, 119, 6, 0.35);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25), 0 24px 48px -20px rgba(217, 119, 6, 0.45);
+}
+html[data-theme="light"] .podium-2 {
+  background-image: linear-gradient(180deg, rgba(148, 163, 184, 0.2), rgba(226, 232, 240, 0.12) 45%, rgba(255, 255, 255, 0) 80%);
+}
+html[data-theme="light"] .podium-3 {
+  background-image: linear-gradient(180deg, rgba(251, 146, 60, 0.18), rgba(254, 215, 170, 0.1) 45%, rgba(255, 255, 255, 0) 80%);
+}
+html[data-theme="light"] .results-table {
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -18px rgba(15, 23, 42, 0.18);
+}
+/* (compound selector: must beat the generic light .bg-white/5 card rule) */
+html[data-theme="light"] .results-track.bg-white\/5 {
+  background-color: rgba(15, 23, 42, 0.08);
+}
+html[data-theme="light"] .podium-card .theme-on-brand,
+html[data-theme="light"] .results-table .theme-on-brand {
+  border-color: #ffffff;
+}

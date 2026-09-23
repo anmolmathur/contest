@@ -241,8 +241,8 @@ export default function ResultsPage() {
     <main
       className="min-h-screen text-slate-100"
       style={{
-        background:
-          "radial-gradient(ellipse at top, rgba(124,58,237,0.18), transparent 60%), radial-gradient(ellipse at bottom right, rgba(37,99,235,0.12), transparent 60%), #05060d",
+        // Themed in app/globals.css ("Results page") — dark and light variants.
+        background: "var(--results-bg)",
       }}
     >
       {/* ---------------- HEADER ---------------- */}
@@ -296,9 +296,9 @@ export default function ResultsPage() {
             className="mt-5 text-4xl md:text-6xl font-black bg-clip-text text-transparent"
             style={{
               backgroundImage: `linear-gradient(90deg,
-                var(--brand-primary, #a78bfa),
-                var(--brand-secondary, #60a5fa),
-                var(--brand-accent, #f472b6))`,
+                var(--brand-primary, var(--results-accent-1)),
+                var(--brand-secondary, var(--results-accent-2)),
+                var(--brand-accent, var(--results-accent-3)))`,
             }}
           >
             {isLive ? "Live Leaderboard" : isCompleted ? "Final Results" : "Results"}
@@ -366,13 +366,13 @@ export default function ResultsPage() {
                   <span>{p.pct}%</span>
                 </div>
                 <div className="mt-1 text-sm font-semibold text-white line-clamp-1">{p.name}</div>
-                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                <div className="mt-3 h-1.5 w-full results-track overflow-hidden rounded-full bg-white/5">
                   <div
                     className="h-full rounded-full"
                     style={{
                       width: `${p.pct}%`,
                       background:
-                        "linear-gradient(90deg, var(--brand-primary, #a78bfa), var(--brand-secondary, #60a5fa))",
+                        "linear-gradient(90deg, var(--brand-primary, var(--results-accent-1)), var(--brand-secondary, var(--results-accent-2)))",
                       transition: "width 600ms ease",
                     }}
                   />
@@ -449,7 +449,7 @@ export default function ResultsPage() {
         ) : leaderboard.length === 0 ? (
           <EmptyState status={contest.status} teamsLabel={tp("team")} />
         ) : (
-          <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
+          <div className="results-table overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-white/[0.04] text-left text-[11px] uppercase tracking-wider text-slate-400">
@@ -527,6 +527,7 @@ export default function ResultsPage() {
             rgba(251,191,36,0.15) 100%);
           background-size: 200% 100%;
           animation: shimmer 6s linear infinite;
+          opacity: var(--podium-shimmer-opacity, 0.5);
         }
         @keyframes floaty {
           0%, 100% { transform: translateY(0); }
@@ -564,7 +565,7 @@ function MemberAvatars({ members }: { members: LBEntry["members"] }) {
         {shown.map((m, i) => (
           <div
             key={m.id ?? i}
-            className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-slate-950 text-[11px] font-bold text-white"
+            className="theme-on-brand flex h-7 w-7 items-center justify-center rounded-full border-2 border-slate-950 text-[11px] font-bold text-white"
             style={{
               background: `linear-gradient(135deg, hsl(${(i * 57) % 360} 70% 50%), hsl(${(i * 57 + 40) % 360} 70% 40%))`,
             }}
@@ -578,6 +579,9 @@ function MemberAvatars({ members }: { members: LBEntry["members"] }) {
     </div>
   );
 }
+
+// Literal class names so Tailwind generates them.
+const MOBILE_ORDER = { 1: "order-1", 2: "order-2", 3: "order-3" } as const;
 
 function PodiumCard({
   team, rank, elevated, maxPossible,
@@ -622,13 +626,14 @@ function PodiumCard({
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: rank === 1 ? 0.1 : rank === 2 ? 0 : 0.2 }}
-      className={`relative ${elevated ? "md:-translate-y-6" : ""} ${cfg.heightCls}`}
+      // Phones stack 1st → 2nd → 3rd; from md up the podium is 2nd | 1st | 3rd.
+      className={`relative ${MOBILE_ORDER[rank]} md:order-none ${elevated ? "md:-translate-y-6" : ""} ${cfg.heightCls}`}
     >
       <div
-        className={`relative overflow-hidden rounded-2xl border border-white/10 ${cfg.ring} bg-gradient-to-b ${cfg.gradient} p-6`}
+        className={`podium-card podium-${rank} relative overflow-hidden rounded-2xl border border-white/10 ${cfg.ring} bg-gradient-to-b ${cfg.gradient} p-6`}
       >
         {cfg.shimmer && (
-          <div className="pointer-events-none absolute inset-0 gold-shimmer opacity-50" />
+          <div className="pointer-events-none absolute inset-0 gold-shimmer" />
         )}
 
         <div className="relative flex items-center gap-3 text-xs uppercase tracking-widest text-slate-200">
@@ -650,10 +655,7 @@ function PodiumCard({
         )}
 
         <div className={`relative mt-6 ${cfg.numberCls} font-black tabular-nums`} style={{
-          background:
-            rank === 1
-              ? "linear-gradient(135deg, #fde047, #f59e0b)"
-              : "linear-gradient(135deg, #e5e7eb, #94a3b8)",
+          background: `var(--podium-${rank}-number)`,
           WebkitBackgroundClip: "text",
           WebkitTextFillColor: "transparent",
         }}>
@@ -661,17 +663,12 @@ function PodiumCard({
         </div>
         <div className="relative text-xs text-slate-400">of {maxPossible} max · {pct}%</div>
 
-        <div className="relative mt-5 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+        <div className="relative mt-5 h-1.5 w-full results-track overflow-hidden rounded-full bg-white/5">
           <div
             className="h-full rounded-full"
             style={{
               width: `${pct}%`,
-              background:
-                rank === 1
-                  ? "linear-gradient(90deg, #fbbf24, #f59e0b)"
-                  : rank === 2
-                    ? "linear-gradient(90deg, #cbd5e1, #94a3b8)"
-                    : "linear-gradient(90deg, #d97706, #92400e)",
+              background: `var(--podium-${rank}-bar)`,
             }}
           />
         </div>
