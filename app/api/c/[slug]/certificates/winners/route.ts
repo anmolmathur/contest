@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, submissions, contestUsers } from "@/lib/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, ne } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
 import { teamPhaseScores, type ScoringCriterion } from "@/lib/scoring";
 import { resolveScale } from "@/lib/contest-config";
@@ -52,7 +52,8 @@ export async function GET(
     const approvedTeams = await db.query.teams.findMany({
       where: and(
         eq(teams.contestId, contest.id),
-        eq(teams.approved, true)
+        eq(teams.approved, true),
+        ne(teams.status, "eliminated")
       ),
       with: {
         contestMembers: {

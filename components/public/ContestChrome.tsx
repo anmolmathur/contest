@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Wordmark } from "@/components/Wordmark";
+import type { WordmarkSegment } from "@/lib/wordmark";
 
 /** Routes that render full-bleed with no nav / banner / assistant (projector). */
 export function isChromelessPath(pathname: string | null): boolean {
@@ -33,13 +35,27 @@ interface NavProps {
   name: string;
   showAgenda: boolean;
   showShowcase: boolean;
+  /** Ideathon extras */
+  showProblems?: boolean;
+  showAgents?: boolean;
+  showPlaybook?: boolean;
+  wordmark?: WordmarkSegment[] | null;
 }
 
 /**
  * Slim contest nav bar shown above every /c/[slug]/* page. Horizontal scroll
  * on small screens; hidden on the stage view.
  */
-export function ContestNav({ slug, name, showAgenda, showShowcase }: NavProps) {
+export function ContestNav({
+  slug,
+  name,
+  showAgenda,
+  showShowcase,
+  showProblems,
+  showAgents,
+  showPlaybook,
+  wordmark,
+}: NavProps) {
   const pathname = usePathname() ?? "";
   if (isChromelessPath(pathname)) return null;
 
@@ -48,8 +64,11 @@ export function ContestNav({ slug, name, showAgenda, showShowcase }: NavProps) {
     { href: base, label: "Home", match: (p) => p === base || p === `${base}/` || p === "/" },
     { href: `${base}/rules`, label: "Rules", match: (p) => p.endsWith("/rules") },
   ];
+  if (showPlaybook) items.push({ href: `${base}/playbook`, label: "Playbook", match: (p) => p.endsWith("/playbook") });
+  if (showProblems) items.push({ href: `${base}/problems`, label: "Problem Bank", match: (p) => p.endsWith("/problems") });
   if (showAgenda) items.push({ href: `${base}/agenda`, label: "Agenda", match: (p) => p.endsWith("/agenda") });
   if (showShowcase) items.push({ href: `${base}/showcase`, label: "Showcase", match: (p) => p.endsWith("/showcase") });
+  if (showAgents) items.push({ href: `${base}/agents`, label: "Agent Registry", match: (p) => p.endsWith("/agents") });
   items.push({ href: `${base}/results`, label: "Results", match: (p) => p.endsWith("/results") });
   items.push({ href: `${base}/dashboard`, label: "Dashboard", match: (p) => p.endsWith("/dashboard") });
 
@@ -64,7 +83,7 @@ export function ContestNav({ slug, name, showAgenda, showShowcase }: NavProps) {
           className="hidden max-w-[14rem] shrink-0 truncate text-xs font-semibold text-white/80 hover:text-white sm:block"
           title={name}
         >
-          {name}
+          <Wordmark segments={wordmark} fallback={name} accentClassName="text-emerald-300" />
         </Link>
         <span className="hidden h-4 w-px shrink-0 bg-white/15 sm:block" />
         <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

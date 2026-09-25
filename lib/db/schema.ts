@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique, boolean, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // Enums
@@ -106,6 +106,8 @@ export const contests = pgTable("contests", {
   speakers: jsonb("speakers"),
   // Live on-stage finale state: {phase, currentTeamId, scoringOpen, queue[], timerEndsAt, revealStage}
   liveState: jsonb("live_state"),
+  // Category awards on top of ranked prizes: Array of {key, label, description, amount, winnerTeamId}
+  awards: jsonb("awards"),
 
   maxTeams: integer("max_teams").default(50).notNull(),
   maxApprovedTeams: integer("max_approved_teams").default(10).notNull(),
@@ -134,8 +136,11 @@ export const contestUsers = pgTable("contest_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  role: varchar("role", { length: 50 }).notNull(), // 'admin' | 'judge' | 'participant' | 'mentor'
-  participantRole: varchar("participant_role", { length: 100 }), // e.g. 'Developer', 'Team Lead'
+  role: varchar("role", { length: 50 }).notNull(), // 'admin' | 'judge' | 'participant' | 'mentor' | 'validator'
+  // Primary team role (e.g. 'Developer', 'The Mastermind'). For validators: scope 'Data' | 'Finance'.
+  participantRole: varchar("participant_role", { length: 100 }),
+  // Additional team roles the same person also plays (string[]); see lib/team-capacity.ts
+  extraRoles: jsonb("extra_roles"),
   teamId: uuid("team_id"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
@@ -174,6 +179,11 @@ export const teams = pgTable("teams", {
   createdBy: uuid("created_by").notNull(),
   leaderId: uuid("leader_id"),
   approved: boolean("approved").default(false).notNull(),
+  // Ideathon: claimed problem from the Problem Bank, declared solution paths (string[]),
+  // and elimination status after a gate stage.
+  problemId: uuid("problem_id"),
+  solutionPaths: jsonb("solution_paths"),
+  status: varchar("status", { length: 20 }).default("active").notNull(), // 'active' | 'eliminated' | 'withdrawn'
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 });
@@ -328,6 +338,86 @@ export const teamInvitations = pgTable("team_invitations", {
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 });
 
+// ================================================================
+// Ideathon tables (0009)
+// ================================================================
+
+// Problem Bank: curated problems (open) and team proposals (proposed → approved/rejected)
+export const problemStatements = pgTable("problem_statements", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  trackId: uuid("track_id").references(() => tracks.id, { onDelete: "set null" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  ownerDepartment: varchar("owner_department", { length: 255 }),
+  sponsor: varchar("sponsor", { length: 255 }),
+  // {metric, unit, direction: 'increase'|'decrease', from?, to?}
+  metricTemplate: jsonb("metric_template"),
+  maxTeams: integer("max_teams").default(1).notNull(),
+  status: varchar("status", { length: 20 }).default("open").notNull(), // 'open' | 'proposed' | 'approved' | 'rejected' | 'closed'
+  proposedByTeamId: uuid("proposed_by_team_id").references(() => teams.id, { onDelete: "set null" }),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+});
+
+// Jury go/no-go decision for a team at a gate stage (phaseConfig[].gate)
+export const stageDecisions = pgTable("stage_decisions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  phase: integer("phase").notNull(),
+  decision: varchar("decision", { length: 20 }).notNull(), // 'go' | 'conditional' | 'out'
+  conditions: text("conditions"),
+  decidedBy: uuid("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { mode: "date" }).defaultNow(),
+}, (table) => ({
+  uniqueTeamPhase: unique().on(table.teamId, table.phase),
+}));
+
+// Validated before/after impact metrics with finance valuation
+export const impactMetrics = pgTable("impact_metrics", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  unit: varchar("unit", { length: 50 }),
+  direction: varchar("direction", { length: 10 }).default("decrease").notNull(), // 'increase' | 'decrease'
+  category: varchar("category", { length: 20 }).default("time").notNull(), // revenue|cost|time|risk|adoption|experience
+  sourceSystem: varchar("source_system", { length: 255 }),
+  method: text("method"),
+
+  baselineValue: doublePrecision("baseline_value"),
+  baselinePeriod: varchar("baseline_period", { length: 120 }),
+  baselineEvidence: jsonb("baseline_evidence"), // string[] (urls)
+  baselineStatus: varchar("baseline_status", { length: 20 }).default("draft").notNull(), // draft|submitted|validated|rejected
+  baselineValidatorId: uuid("baseline_validator_id").references(() => users.id),
+  baselineNote: text("baseline_note"),
+
+  targetValue: doublePrecision("target_value"),
+
+  actualValue: doublePrecision("actual_value"),
+  actualPeriod: varchar("actual_period", { length: 120 }),
+  actualEvidence: jsonb("actual_evidence"),
+  actualStatus: varchar("actual_status", { length: 20 }).default("draft").notNull(),
+  actualValidatorId: uuid("actual_validator_id").references(() => users.id),
+  actualNote: text("actual_note"),
+
+  // Finance valuation (whole rupees)
+  realisedValueInr: integer("realised_value_inr"),
+  recurringAnnualValueInr: integer("recurring_annual_value_inr"),
+  recurringYears: integer("recurring_years").default(1),
+  valuationBasis: text("valuation_basis"),
+  financeStatus: varchar("finance_status", { length: 20 }).default("pending").notNull(), // pending|validated|rejected
+  financeValidatorId: uuid("finance_validator_id").references(() => users.id),
+  financeNote: text("finance_note"),
+
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
+});
+
 // Auth.js Tables
 export const accounts = pgTable("accounts", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -381,6 +471,7 @@ export const contestsRelations = relations(contests, ({ one, many }) => ({
   teams: many(teams),
   contestUsers: many(contestUsers),
   certificateTemplates: many(certificateTemplates),
+  problemStatements: many(problemStatements),
 }));
 
 export const tracksRelations = relations(tracks, ({ one, many }) => ({
@@ -428,7 +519,46 @@ export const teamsRelations = relations(teams, ({ one, many }) => ({
     fields: [teams.trackId],
     references: [tracks.id],
   }),
+  problem: one(problemStatements, {
+    fields: [teams.problemId],
+    references: [problemStatements.id],
+  }),
   contestMembers: many(contestUsers),
+  stageDecisions: many(stageDecisions),
+  impactMetrics: many(impactMetrics),
+}));
+
+export const problemStatementsRelations = relations(problemStatements, ({ one }) => ({
+  contest: one(contests, {
+    fields: [problemStatements.contestId],
+    references: [contests.id],
+  }),
+  track: one(tracks, {
+    fields: [problemStatements.trackId],
+    references: [tracks.id],
+  }),
+}));
+
+export const stageDecisionsRelations = relations(stageDecisions, ({ one }) => ({
+  team: one(teams, {
+    fields: [stageDecisions.teamId],
+    references: [teams.id],
+  }),
+  contest: one(contests, {
+    fields: [stageDecisions.contestId],
+    references: [contests.id],
+  }),
+}));
+
+export const impactMetricsRelations = relations(impactMetrics, ({ one }) => ({
+  team: one(teams, {
+    fields: [impactMetrics.teamId],
+    references: [teams.id],
+  }),
+  contest: one(contests, {
+    fields: [impactMetrics.contestId],
+    references: [contests.id],
+  }),
 }));
 
 export const submissionsRelations = relations(submissions, ({ one, many }) => ({

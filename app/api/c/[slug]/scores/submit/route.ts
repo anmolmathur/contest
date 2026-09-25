@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { submissions, scores } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
-import { validateCriteriaScores } from "@/lib/scoring";
+import { criteriaForPhase, validateCriteriaScores, type ScoringCriterion } from "@/lib/scoring";
 import { parseOptionalText } from "@/lib/api-input";
 
 // Legacy fixed field keys that map to dedicated (integer) columns
@@ -119,6 +119,19 @@ export async function POST(
         { error: "Submission does not belong to this contest" },
         { status: 400 }
       );
+    }
+
+    // Per-stage rubrics: only keep criteria that apply to this submission's stage.
+    const stageCriteria = criteriaForPhase(
+      (Array.isArray(contest.scoringCriteria) ? contest.scoringCriteria : []) as ScoringCriterion[],
+      submission.phase,
+    );
+    if (stageCriteria.some((c) => c.phases && c.phases.length > 0)) {
+      const allowed = new Set(stageCriteria.map((c) => c.key));
+      for (const k of Object.keys(criteriaScores)) if (!allowed.has(k)) delete criteriaScores[k];
+      if (Object.keys(criteriaScores).length === 0) {
+        return NextResponse.json({ error: "No scores for this stage's criteria" }, { status: 400 });
+      }
     }
 
     // Mirror legacy keys into the old integer columns for backward compatibility

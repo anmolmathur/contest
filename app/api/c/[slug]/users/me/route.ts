@@ -5,7 +5,7 @@ import { contestUsers, users, teams } from "@/lib/db/schema";
 import { eq, and, isNotNull } from "drizzle-orm";
 import { resolveContest, isPlatformAdmin } from "@/lib/contest-auth";
 import { resolveSettings } from "@/lib/contest-config";
-import { checkTeamSlot, roleConfigOf } from "@/lib/team-capacity";
+import { checkTeamSlot, extraRolesOf, roleConfigOf } from "@/lib/team-capacity";
 
 /**
  * Track/category ids already claimed by a team. Only computed when the
@@ -90,13 +90,15 @@ export async function GET(
   }
 }
 
-// PUT /api/c/[slug]/users/me - Participant sets their own team role
+// PUT /api/c/[slug]/users/me - Participant sets their own team role(s) / department
 //
-// Body: { participantRole: string | null }
-//  - must be one of contest.roleConfig roles when roleConfig is non-empty
+// Body: { participantRole?: string | null, extraRoles?: string[], department?: string | null }
+//  - roles must be from contest.roleConfig when roleConfig is non-empty
+//  - extraRoles = further roles the same person plays (Ideathon: one person, many hats)
 //  - respects per-team role caps when the caller is already in a team
-//  - null / "" clears the role
-// Response: { participantRole }
+//  - department must be from settings.departments when that list is set
+//  - null / "" clears the primary role
+// Response: { participantRole, extraRoles, department }
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -126,29 +128,63 @@ export async function PUT(
     if (!contestUser) {
       return NextResponse.json({ error: "Not enrolled in this contest" }, { status: 404 });
     }
-    if (contestUser.role !== "participant") {
+
+    const body = (await req.json().catch(() => ({}))) as {
+      participantRole?: unknown;
+      extraRoles?: unknown;
+      department?: unknown;
+    };
+    if (body.participantRole === undefined && body.extraRoles === undefined && body.department === undefined) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    }
+
+    // ---- Department (any member) ----
+    let department: string | null | undefined;
+    if (body.department !== undefined) {
+      if (body.department !== null && typeof body.department !== "string") {
+        return NextResponse.json({ error: "department must be a string" }, { status: 400 });
+      }
+      department = typeof body.department === "string" && body.department.trim() ? body.department.trim().slice(0, 255) : null;
+      const allowed = resolveSettings(contest.settings).departments;
+      if (department && allowed?.length && !allowed.includes(department)) {
+        return NextResponse.json({ error: `Department must be one of: ${allowed.join(", ")}` }, { status: 400 });
+      }
+    }
+
+    // ---- Roles (participants only) ----
+    const touchesRoles = body.participantRole !== undefined || body.extraRoles !== undefined;
+    if (touchesRoles && contestUser.role !== "participant") {
       return NextResponse.json(
         { error: "Only participants can choose a team role" },
         { status: 403 }
       );
     }
 
-    const body = (await req.json().catch(() => ({}))) as { participantRole?: unknown };
-    const raw = body.participantRole;
-    if (raw !== null && raw !== undefined && typeof raw !== "string") {
-      return NextResponse.json({ error: "participantRole must be a string" }, { status: 400 });
+    let participantRole = contestUser.participantRole;
+    if (body.participantRole !== undefined) {
+      const raw = body.participantRole;
+      if (raw !== null && typeof raw !== "string") {
+        return NextResponse.json({ error: "participantRole must be a string" }, { status: 400 });
+      }
+      participantRole = typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
     }
-    if (raw === undefined) {
-      return NextResponse.json({ error: "participantRole is required" }, { status: 400 });
+    let extraRoles = extraRolesOf(contestUser.extraRoles);
+    if (body.extraRoles !== undefined) {
+      if (body.extraRoles !== null && !Array.isArray(body.extraRoles)) {
+        return NextResponse.json({ error: "extraRoles must be a list" }, { status: 400 });
+      }
+      extraRoles = extraRolesOf(body.extraRoles);
     }
-    const participantRole = typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
+    extraRoles = extraRoles.filter((r) => r !== participantRole).slice(0, 8);
 
-    if (participantRole) {
-      if (participantRole.length > 100) {
+    if (touchesRoles) {
+      const all = [participantRole, ...extraRoles].filter((r): r is string => !!r);
+      if (all.some((r) => r.length > 100)) {
         return NextResponse.json({ error: "Role name is too long" }, { status: 400 });
       }
       const roles = roleConfigOf(contest.roleConfig);
-      if (roles.length > 0 && !roles.some((r) => r.role === participantRole)) {
+      const unknown = roles.length > 0 ? all.find((r) => !roles.some((rc) => rc.role === r)) : undefined;
+      if (unknown) {
         return NextResponse.json(
           { error: `Role must be one of: ${roles.map((r) => r.role).join(", ")}` },
           { status: 400 }
@@ -156,26 +192,31 @@ export async function PUT(
       }
 
       // Per-team caps (e.g. one Team Lead) when already in a team.
-      if (contestUser.teamId && participantRole !== contestUser.participantRole) {
+      if (contestUser.teamId && all.length > 0) {
         const slotError = await checkTeamSlot({
           contest,
           teamId: contestUser.teamId,
           userId: session.user.id,
           participantRole,
+          extraRoles,
           mode: "roleChange",
         });
         if (slotError) {
           return NextResponse.json({ error: slotError }, { status: 400 });
         }
       }
+
+      await db
+        .update(contestUsers)
+        .set({ participantRole, extraRoles })
+        .where(eq(contestUsers.id, contestUser.id));
     }
 
-    await db
-      .update(contestUsers)
-      .set({ participantRole })
-      .where(eq(contestUsers.id, contestUser.id));
+    if (department !== undefined) {
+      await db.update(users).set({ department, updatedAt: new Date() }).where(eq(users.id, session.user.id));
+    }
 
-    return NextResponse.json({ participantRole });
+    return NextResponse.json({ participantRole, extraRoles, department });
   } catch (error) {
     console.error("Error updating contest role:", error);
     return NextResponse.json({ error: "Failed to update role" }, { status: 500 });

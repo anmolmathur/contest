@@ -58,8 +58,10 @@ import {
   CheckCircle,
   XCircle,
   X,
+  Lightbulb,
 } from "lucide-react";
 import CertificateTab from "@/components/certificates/CertificateTab";
+import { IdeathonAdminPanel } from "@/components/ideathon/IdeathonAdminPanel";
 import type { ScoringCriterion, PhaseConfig, Prize, RoleConfig } from "@/lib/contest-context";
 import type { ContestType, SubmissionValues } from "@/lib/contest-config";
 import { getPreset } from "@/lib/contest-types";
@@ -189,9 +191,10 @@ type TabType =
   | "submissions"
   | "scores"
   | "certificates"
-  | "settings";
+  | "settings"
+  | "ideathon";
 
-const TAB_IDS: TabType[] = ["summary", "users", "judges", "tracks", "teams", "submissions", "scores", "certificates", "settings"];
+const TAB_IDS: TabType[] = ["summary", "users", "judges", "tracks", "teams", "submissions", "scores", "certificates", "settings", "ideathon"];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -460,7 +463,7 @@ export default function ContestAdminPage() {
         body: JSON.stringify({
           userId: selectedPlatformUser.id,
           role: addUserRole,
-          participantRole: addUserRole === "participant" ? addUserParticipantRole : undefined,
+          participantRole: addUserRole === "participant" || addUserRole === "validator" ? addUserParticipantRole : undefined,
         }),
       });
       const data = await res.json();
@@ -486,7 +489,7 @@ export default function ContestAdminPage() {
       const res = await fetch(`/api/c/${slug}/users/${editRoleUser.id}/role`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: editRoleValue, participantRole: editRoleValue === "participant" ? editParticipantRole : undefined }),
+        body: JSON.stringify({ role: editRoleValue, participantRole: editRoleValue === "participant" || editRoleValue === "validator" ? editParticipantRole : undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -839,7 +842,7 @@ export default function ContestAdminPage() {
   const removeScoringCriterion = (index: number) => {
     setScoringCriteriaForm(scoringCriteriaForm.filter((_, i) => i !== index));
   };
-  const updateScoringCriterion = (index: number, field: string, value: string | number) => {
+  const updateScoringCriterion = (index: number, field: string, value: string | number | number[] | undefined) => {
     const updated = [...scoringCriteriaForm];
     (updated[index] as unknown as Record<string, unknown>)[field] = value;
     setScoringCriteriaForm(updated);
@@ -1030,6 +1033,9 @@ export default function ContestAdminPage() {
     { id: "scores", label: "Scores", icon: Award },
     { id: "certificates", label: "Certificates", icon: FileText },
     { id: "settings", label: "Settings", icon: Settings },
+    ...(contest.contestType === "ideathon"
+      ? [{ id: "ideathon" as TabType, label: "Ideathon Ops", icon: Lightbulb }]
+      : []),
   ];
 
   // -----------------------------------------------------------------------
@@ -1203,9 +1209,10 @@ export default function ContestAdminPage() {
                           <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                             cu.role === "admin" ? "bg-hot-pink/20 text-hot-pink" :
                             cu.role === "judge" ? "bg-electric-blue/20 text-electric-blue" :
+                            cu.role === "validator" ? "bg-amber-500/20 text-amber-300" :
                             "bg-green-500/20 text-green-400"
                           }`}>
-                            {cu.role}
+                            {cu.role === "validator" ? t("validator") : cu.role}
                           </span>
                         </TableCell>
                         <TableCell className="text-gray-400">{cu.participantRole || "-"}</TableCell>
@@ -1550,6 +1557,8 @@ export default function ContestAdminPage() {
           {/* ============================================================= */}
           {/* SETTINGS TAB                                                   */}
           {/* ============================================================= */}
+          {activeTab === "ideathon" && contest.contestType === "ideathon" && <IdeathonAdminPanel />}
+
           {activeTab === "settings" && (
             <div className="space-y-6">
               <AiAssistPanel slug={slug} onApply={handleAiPatch} lastApplied={aiApplied} />
@@ -1692,12 +1701,37 @@ export default function ContestAdminPage() {
                           <Label className="text-gray-300 text-xs">Description</Label>
                           <Input value={criterion.description} onChange={(e) => updateScoringCriterion(index, "description", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" placeholder="Description for judges" />
                         </div>
+                        <div className="md:col-span-3">
+                          <Label className="text-gray-300 text-xs">Used in (none ticked = every scored phase)</Label>
+                          <div className="mt-1 flex flex-wrap gap-3">
+                            {phaseConfigForm.filter((p) => p.maxPoints > 0).map((p) => {
+                              const on = (criterion.phases ?? []).includes(p.phase);
+                              return (
+                                <label key={p.phase} className="flex items-center gap-1.5 text-xs text-gray-300">
+                                  <input
+                                    type="checkbox"
+                                    checked={on}
+                                    onChange={() => {
+                                      const cur = criterion.phases ?? [];
+                                      const next = on ? cur.filter((x) => x !== p.phase) : [...cur, p.phase].sort((x, y) => x - y);
+                                      updateScoringCriterion(index, "phases", next.length ? next : undefined);
+                                    }}
+                                  />
+                                  {p.phase}. {p.name || `Phase ${p.phase}`}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}
                   {scoringCriteriaForm.length > 0 && (
                     <p className="text-gray-500 text-sm">
-                      Total weight: {scoringCriteriaForm.reduce((sum, c) => sum + c.weight, 0).toFixed(2)} (should equal 1.00)
+                      Total weight: {scoringCriteriaForm.reduce((sum, c) => sum + c.weight, 0).toFixed(2)}
+                      {scoringCriteriaForm.some((c) => c.phases?.length)
+                        ? " — per-phase rubrics: weights within each phase are normalised automatically"
+                        : " (should equal 1.00)"}
                     </p>
                   )}
                 </div>
@@ -1725,6 +1759,10 @@ export default function ContestAdminPage() {
                     <div key={index} className="bg-white/5 border border-white/10 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-white font-semibold">Phase {phase.phase}</span>
+                        <label className="ml-auto mr-2 flex items-center gap-2 text-xs text-gray-300" title="After this stage the jury records Go / Go-with-changes / Out; Out eliminates the team.">
+                          <input type="checkbox" checked={!!phase.gate} onChange={(e) => updatePhaseConfig(index, "gate", e.target.checked || undefined)} />
+                          Go / no-go gate
+                        </label>
                         <Button variant="ghost" size="sm" onClick={() => removePhaseConfig(index)} className="text-red-400 hover:bg-red-500/10 h-8 w-8 p-0">
                           <Trash2 size={14} />
                         </Button>
@@ -1876,10 +1914,14 @@ export default function ContestAdminPage() {
                 <div className="space-y-3">
                   {roleConfigForm.map((rc, index) => (
                     <div key={index} className="bg-white/5 border border-white/10 rounded-lg p-4">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                         <div>
                           <Label className="text-gray-300 text-xs">Role Name</Label>
                           <Input value={rc.role} onChange={(e) => updateRoleConfig(index, "role", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" placeholder="Developer" />
+                        </div>
+                        <div>
+                          <Label className="text-gray-300 text-xs">Min Per Team (0 = optional)</Label>
+                          <Input type="number" min={0} value={rc.minPerTeam ?? 0} onChange={(e) => updateRoleConfig(index, "minPerTeam", Math.max(0, parseInt(e.target.value) || 0))} className="bg-white/5 border-white/10 text-white text-sm" />
                         </div>
                         <div>
                           <Label className="text-gray-300 text-xs">Max Per Team</Label>
@@ -1890,6 +1932,10 @@ export default function ContestAdminPage() {
                             <Trash2 size={14} />
                           </Button>
                         </div>
+                      </div>
+                      <div className="mt-3">
+                        <Label className="text-gray-300 text-xs">What this role does (shown to participants)</Label>
+                        <Input value={rc.description ?? ""} onChange={(e) => updateRoleConfig(index, "description", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" />
                       </div>
                     </div>
                   ))}
@@ -2006,9 +2052,22 @@ export default function ContestAdminPage() {
                   <SelectItem value="participant">Participant</SelectItem>
                   <SelectItem value="judge">Judge</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="validator">{t("validator")} (validates numbers)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {addUserRole === "validator" && (
+              <div>
+                <Label className="text-gray-200">{t("validator")} scope</Label>
+                <Select value={addUserParticipantRole} onValueChange={setAddUserParticipantRole}>
+                  <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue placeholder="Data or Finance" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Data">Data / BI — validates baselines and actuals</SelectItem>
+                    <SelectItem value="Finance">Finance — values results in ₹</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {addUserRole === "participant" && contest.roleConfig && contest.roleConfig.length > 0 && (
               <div>
                 <Label className="text-gray-200">Participant Role</Label>
@@ -2048,9 +2107,22 @@ export default function ContestAdminPage() {
                     <SelectItem value="participant">Participant</SelectItem>
                     <SelectItem value="judge">Judge</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="validator">{t("validator")} (validates numbers)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              {editRoleValue === "validator" && (
+                <div>
+                  <Label className="text-gray-200">{t("validator")} scope</Label>
+                  <Select value={editParticipantRole} onValueChange={setEditParticipantRole}>
+                    <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue placeholder="Data or Finance" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Data">Data / BI — validates baselines and actuals</SelectItem>
+                      <SelectItem value="Finance">Finance — values results in ₹</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {editRoleValue === "participant" && contest.roleConfig && contest.roleConfig.length > 0 && (
                 <div>
                   <Label className="text-gray-200">Participant Role</Label>

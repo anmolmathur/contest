@@ -5,7 +5,7 @@ import { teams, submissions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, getContestUser, canAdminContest } from "@/lib/contest-auth";
 import { resolveSettings, feedbackVisibleToTeams, resolveScale } from "@/lib/contest-config";
-import { averageWeighted, scorablePhases, type ScoringCriterion } from "@/lib/scoring";
+import { averageWeighted, criteriaForPhase, scorablePhases, type ScoringCriterion } from "@/lib/scoring";
 import { contestTerm } from "@/lib/api-input";
 
 /**
@@ -86,7 +86,7 @@ export async function GET(
     const phases = scorablePhases(contest.phaseConfig).map((p) => {
       const sub = teamSubmissions.find((s) => s.phase === p.phase);
       const rows = sub?.scores ?? [];
-      const avg = averageWeighted(rows, scoringCriteria, scale);
+      const avg = averageWeighted(rows, criteriaForPhase(scoringCriteria, p.phase), scale);
       const feedback = rows
         .filter((r) => typeof r.feedback === "string" && r.feedback.trim() !== "")
         .sort((a, b) => (judgeNumber.get(a.judgeId) ?? 0) - (judgeNumber.get(b.judgeId) ?? 0))

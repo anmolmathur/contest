@@ -10,6 +10,9 @@ import TrackCard from "@/components/TrackCard";
 import TimelineNode from "@/components/TimelineNode";
 import PrizeCard from "@/components/PrizeCard";
 import BackgroundPattern from "@/components/BackgroundPattern";
+import { Wordmark } from "@/components/Wordmark";
+import { ValueMeter } from "@/components/ideathon/ValueMeter";
+import { AwardsGrid } from "@/components/ideathon/AwardsGrid";
 import { getImageUrl } from "@/lib/imageHelper";
 import { CalendarDays, ChevronRight, MapPin, Sparkles, Trophy } from "lucide-react";
 import {
@@ -27,7 +30,8 @@ const SECONDARY_BTN =
 
 export default function ContestPage() {
   const { contest } = useContest();
-  const { landing, settings, t, tp } = useContestConfig();
+  const { landing, settings, t, tp, contestType } = useContestConfig();
+  const isIdeathon = contestType === "ideathon";
   const { data: session } = useSession();
   const isLoggedIn = !!session?.user;
   const isPlatformAdmin = session?.user?.globalRole === "platform_admin";
@@ -113,16 +117,24 @@ export default function ContestPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-5xl sm:text-7xl md:text-8xl lg:text-9xl font-black mb-6 break-words leading-[1.05]"
-            style={{
-              WebkitTextStroke: "2px transparent",
-              backgroundImage: "linear-gradient(90deg, #7c3aed, #2563eb, #db2777)",
-              backgroundClip: "text",
-              WebkitBackgroundClip: "text",
-              color: "transparent",
-              textShadow: "0 0 80px rgba(124, 58, 237, 0.5)",
-            }}
+            style={
+              contest.wordmark
+                ? { textShadow: "0 0 80px rgba(16, 185, 129, 0.35)" }
+                : {
+                    WebkitTextStroke: "2px transparent",
+                    backgroundImage: "linear-gradient(90deg, #7c3aed, #2563eb, #db2777)",
+                    backgroundClip: "text",
+                    WebkitBackgroundClip: "text",
+                    color: "transparent",
+                    textShadow: "0 0 80px rgba(124, 58, 237, 0.5)",
+                  }
+            }
           >
-            {heroTitle}
+            {contest.wordmark ? (
+              <Wordmark segments={contest.wordmark} fallback={heroTitle} className="text-white" accentClassName="text-emerald-300" />
+            ) : (
+              heroTitle
+            )}
           </motion.h1>
 
           <motion.p
@@ -446,6 +458,23 @@ export default function ContestPage() {
               ))}
             </div>
           </motion.div>
+        </section>
+      )}
+
+      {/* Ideathon: category awards + Value Unlocked meter */}
+      {isIdeathon && contest.awards && contest.awards.length > 0 && (
+        <section className="px-4 pb-12 md:px-8 relative">
+          <div className="mx-auto max-w-6xl">
+            <h3 className="mb-6 text-center text-2xl font-bold text-white md:text-3xl">Category awards</h3>
+            <AwardsGrid slug={slug} initial={contest.awards} />
+          </div>
+        </section>
+      )}
+      {isIdeathon && contest.status !== "draft" && (
+        <section className="px-4 py-12 md:px-8 relative">
+          <div className="mx-auto max-w-6xl">
+            <ValueMeter slug={slug} teamWord={t("team")} />
+          </div>
         </section>
       )}
 

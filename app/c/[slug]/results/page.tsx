@@ -24,6 +24,8 @@ import {
   Search, ChevronLeft, RefreshCw, Zap, CheckCircle2,
 } from "lucide-react";
 import { useContest, useContestConfig } from "@/lib/contest-context";
+import { ValueMeter } from "@/components/ideathon/ValueMeter";
+import { AwardsGrid } from "@/components/ideathon/AwardsGrid";
 
 type LBEntry = {
   teamId: string;
@@ -46,6 +48,7 @@ type PhaseConfig = {
 
 type LBResponse = {
   leaderboard: LBEntry[];
+  eliminated?: Array<{ teamId: string; teamName: string; track: string | null; outAt: string | null }>;
   scoringCriteria?: unknown[];
   phaseConfig?: PhaseConfig[];
 };
@@ -107,7 +110,9 @@ export default function ResultsPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const { contest } = useContest();
-  const { t, tp } = useContestConfig();
+  const { t, tp, contestType } = useContestConfig();
+  const isIdeathon = contestType === "ideathon";
+  const [eliminated, setEliminated] = useState<NonNullable<LBResponse["eliminated"]>>([]);
   const phaseTerm = t("phase");
   const phaseAbbr = phaseTerm.charAt(0).toUpperCase();
 
@@ -132,6 +137,7 @@ export default function ResultsPage() {
       if (res.ok) {
         const data = (await res.json()) as LBResponse;
         setLeaderboard(data.leaderboard);
+        setEliminated(data.eliminated ?? []);
         setPhaseConfig(data.phaseConfig ?? []);
         setLastUpdated(new Date());
       }
@@ -506,6 +512,34 @@ export default function ResultsPage() {
           </div>
         )}
       </section>
+
+      {/* Ideathon: value meter, category awards, crews out at a gate */}
+      {isIdeathon && (
+        <section className="mx-auto max-w-7xl space-y-10 px-6 pb-20">
+          <ValueMeter slug={slug} teamWord={t("team")} />
+          {contest.awards && contest.awards.length > 0 && (
+            <div>
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">Category awards</h2>
+              <AwardsGrid slug={slug} initial={contest.awards} />
+            </div>
+          )}
+          {eliminated.length > 0 && (
+            <div>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-400">
+                Did not pass the gate ({eliminated.length})
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {eliminated.map((e) => (
+                  <span key={e.teamId} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+                    {e.teamName}
+                    {e.outAt ? <span className="text-slate-500"> · out at {e.outAt}</span> : null}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Shared keyframes. Colocated so the page is self-contained. */}
       <style jsx global>{`

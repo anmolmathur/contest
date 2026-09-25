@@ -14,7 +14,7 @@ import { slugify, type ContestDraft, type DraftPhase } from "@/lib/ai/contest-dr
 
 const DRAFT_SCHEMA = `
 type ContestDraft = {
-  contestType?: "hackathon" | "business_symposium";
+  contestType?: "hackathon" | "business_symposium" | "ideathon";
   name?: string;                 // <= 120 chars
   slug?: string;                 // lowercase-hyphen, e.g. "bizfest-2026"
   description?: string;          // 1-3 sentences
@@ -30,22 +30,24 @@ type ContestDraft = {
     startDate: string; endDate: string;                                 // "yyyy-mm-dd" or ""
     description: string; details: string[];                             // details = activities
     deliverables: string[];
+    gate?: boolean;              // ideathon: go / go-with-changes / out decision after this round
   }[];
-  scoringCriteria?: { name: string; key: string; weight: number; description: string }[];  // key camelCase, weights sum to 1.0
+  scoringCriteria?: { name: string; key: string; weight: number; description: string; phases?: number[] }[];  // key camelCase, weights sum to 1.0 (per round when phases is set)
   scoringScale?: { min: number; max: number; step: number; labels?: { min: number; max: number; label: string }[] };
   submissionFields?: {
     key: string;                 // camelCase, unique
     label: string;
-    type: "text" | "textarea" | "url" | "urlList" | "file" | "fileList" | "select";
+    type: "text" | "textarea" | "url" | "urlList" | "file" | "fileList" | "select" | "multiselect" | "number" | "agentCharter";
     required: boolean;
     placeholder?: string; helpText?: string;
     phases?: number[];           // rounds where this field is asked; omit = every round
     accept?: string;             // file types only, e.g. ".pdf,.pptx"
     maxSizeMb?: number;          // file types only
-    options?: string[];          // select only
+    options?: string[];          // select / multiselect only
+    requiredForPaths?: string[]; // ideathon: required only for crews on these solution paths
   }[];
   terminology?: { track?: string; team?: string; phase?: string; judge?: string; submission?: string; member?: string; contest?: string };
-  roleConfig?: { role: string; maxPerTeam: number }[];
+  roleConfig?: { role: string; maxPerTeam: number; minPerTeam?: number; description?: string }[];
   prizes?: { rank: number; label: string; amount: number | null; color: "gold" | "silver" | "bronze" | string }[];
   faqConfig?: { question: string; answer: string }[];
   agenda?: { id: string; day: string; start: string; end?: string; title: string;
@@ -113,11 +115,12 @@ export function buildSetupSystemPrompt(opts: {
     DRAFT_SCHEMA,
     "",
     "# Rules",
-    "- contestType: business_symposium for pitch / business-plan / case / B-school / management competitions; hackathon for build / coding / tech / AI product challenges.",
+    "- contestType: ideathon for internal/employee improvement contests where cross-functional crews fix a real business problem (process, systems, AI agents or tools) and must prove the result with validated before/after numbers; business_symposium for pitch / business-plan / case / B-school / management competitions; hackathon for build / coding / tech / AI product challenges.",
+    "- ideathon uses Value Lens / Crew / Stage / Jury / Entry / Auditor, a Week-1 Idea Pitch go/no-go gate (phaseConfig[0].gate = true), per-stage scoring criteria (each criterion may carry phases: number[]), and keeps the preset's problem bank, roles and awards unless the organiser changes them.",
     "- Terminology: business_symposium uses Category / Round / Jury / Entry; hackathon uses Track / Phase / Judge / Submission unless the organiser asks otherwise.",
     "- scoringCriteria weights are decimals that sum to exactly 1.0. keys are unique camelCase.",
     "- phaseConfig rounds are numbered 1..n in order. maxPoints of scored rounds typically sum to 100; registration/awards rounds use 0.",
-    "- submissionFields: keys unique camelCase; type is one of text|textarea|url|urlList|file|fileList|select; file/fileList need accept (comma-separated extensions) and maxSizeMb; select needs options; phases must reference existing round numbers.",
+    "- submissionFields: keys unique camelCase; type is one of text|textarea|url|urlList|file|fileList|select|multiselect|number|agentCharter; file/fileList need accept (comma-separated extensions) and maxSizeMb; select/multiselect need options; phases must reference existing round numbers.",
     "- scoringScale is either {min:0,max:100,step:1} or {min:1,max:10,step:1} with labels (e.g. 9-10 Exceptional, 7-8 Strong, 5-6 Average, 3-4 Weak, 1-2 Poor).",
     "- Dates are yyyy-mm-dd. Resolve relative dates (\"7 Nov\", \"in 3 weeks\") against today and pick the next future occurrence. Leave dates \"\" when unknown — never invent specific dates that the organiser did not imply.",
     "- slug: lowercase letters, digits and hyphens only.",
@@ -226,6 +229,9 @@ export function deriveName(brief: string, type: ContestType): string {
 }
 
 export function detectType(text: string): ContestType {
+  if (/\b(ideathon|aideathon|ai-?dea-?thon|proof of value|before\s*(?:\/|and|&)\s*after|process re-?engineering|value lens|crews?)\b/i.test(text)) {
+    return "ideathon";
+  }
   return /\b(symposium|business|pitch|b-?school|mba|case\s+(?:study|competition)|startup|entrepreneur|management|bizfest|b-?plan)/i.test(text)
     ? "business_symposium"
     : "hackathon";

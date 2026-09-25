@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Link2, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import type { SubmissionField, SubmissionValues } from "@/lib/contest-config";
-import { fieldsForPhase } from "@/lib/submission-fields";
+import { fieldsForPhase, isFieldRequired } from "@/lib/submission-fields";
+import { AgentCharterEditor } from "./AgentCharterEditor";
 import { uploadFile } from "@/lib/uploads/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,6 +95,7 @@ export function DynamicSubmissionForm({
   contestId,
   teamId,
   disabled = false,
+  solutionPaths,
 }: {
   fields: SubmissionField[];
   phase: number;
@@ -102,8 +104,12 @@ export function DynamicSubmissionForm({
   contestId: string;
   teamId: string;
   disabled?: boolean;
+  /** Team's declared solution paths (Ideathon) — make path-specific fields required. */
+  solutionPaths?: string[] | null;
 }) {
   const defs = fieldsForPhase(fields, phase);
+  const declared = values["solutionPaths"];
+  const paths = Array.isArray(declared) ? declared : solutionPaths ?? null;
 
   // Latest values, so async uploads never overwrite edits made meanwhile.
   const valuesRef = useRef(values);
@@ -223,7 +229,10 @@ export function DynamicSubmissionForm({
           <div key={f.key}>
             <Label htmlFor={inputId} className="text-gray-200">
               {f.label}
-              {f.required && <span className="ml-0.5 text-hot-pink">*</span>}
+              {isFieldRequired(f, paths) && <span className="ml-0.5 text-hot-pink">*</span>}
+              {!f.required && f.requiredForPaths?.length ? (
+                <span className="ml-2 text-xs font-normal text-gray-400">for {f.requiredForPaths.join(" / ")}</span>
+              ) : null}
             </Label>
             {f.helpText && <p className="mt-0.5 text-xs text-gray-400">{f.helpText}</p>}
 
@@ -239,6 +248,51 @@ export function DynamicSubmissionForm({
                   onChange={(e) => setValue(f.key, e.target.value)}
                   className={inputCls}
                 />
+              )}
+
+              {/* ---------- number ---------- */}
+              {f.type === "number" && (
+                <Input
+                  id={inputId}
+                  type="number"
+                  inputMode="decimal"
+                  value={str}
+                  min={f.min}
+                  max={f.max}
+                  disabled={disabled}
+                  placeholder={f.placeholder}
+                  onChange={(e) => setValue(f.key, e.target.value)}
+                  className={`${inputCls} max-w-xs`}
+                />
+              )}
+
+              {/* ---------- multiselect ---------- */}
+              {f.type === "multiselect" && (
+                <div className="flex flex-wrap gap-2" id={inputId}>
+                  {(f.options ?? []).map((opt) => {
+                    const on = arr.includes(opt);
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        disabled={disabled}
+                        aria-pressed={on}
+                        onClick={() => setValue(f.key, on ? arr.filter((x) => x !== opt) : [...arr, opt])}
+                        className={`rounded-full border px-3 py-1 text-sm transition ${
+                          on ? "border-emerald-400/60 bg-emerald-400/15 text-emerald-100" : "border-white/15 bg-white/5 text-gray-300 hover:bg-white/10"
+                        }`}
+                      >
+                        {on ? "✓ " : ""}
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ---------- agent charter ---------- */}
+              {f.type === "agentCharter" && (
+                <AgentCharterEditor value={v} disabled={disabled} onChange={(json) => setValue(f.key, json)} />
               )}
 
               {/* ---------- textarea ---------- */}

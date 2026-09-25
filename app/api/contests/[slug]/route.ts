@@ -1,3 +1,4 @@
+import { isContestType } from "@/lib/contest-config";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -71,10 +72,10 @@ export async function PUT(
       "maxTeams", "maxApprovedTeams", "maxTeamMembers",
       "startDate", "endDate", "registrationDeadline",
       "contestType", "submissionFields", "scoringScale", "terminology", "settings",
-      "agenda", "speakers", "faqConfig", "brandingConfig", "supportEmail", "visibility",
+      "agenda", "speakers", "faqConfig", "brandingConfig", "supportEmail", "visibility", "awards",
     ];
 
-    if (body.contestType !== undefined && !["hackathon", "business_symposium"].includes(body.contestType)) {
+    if (body.contestType !== undefined && !isContestType(body.contestType)) {
       return NextResponse.json({ error: "Invalid contestType" }, { status: 400 });
     }
     if (body.visibility !== undefined && !["public", "unlisted", "private"].includes(body.visibility)) {

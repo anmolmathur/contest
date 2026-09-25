@@ -35,7 +35,7 @@ export async function POST(
       return NextResponse.json({ error: "userId and role are required" }, { status: 400 });
     }
 
-    const validRoles = ["admin", "judge", "participant"];
+    const validRoles = ["admin", "judge", "participant", "validator"];
     if (!validRoles.includes(role)) {
       return NextResponse.json(
         { error: `Invalid role. Must be one of: ${validRoles.join(", ")}` },
@@ -69,7 +69,15 @@ export async function POST(
       contestId: contest.id,
       userId,
       role,
-      participantRole: role === "participant" ? (participantRole || null) : null,
+      // Validators keep their scope ("Data" | "Finance") in participantRole.
+        participantRole:
+          role === "participant"
+            ? participantRole || null
+            : role === "validator"
+              ? participantRole === "Data" || participantRole === "Finance"
+                ? participantRole
+                : null
+              : null,
     }).returning();
 
     return NextResponse.json(newContestUser, { status: 201 });

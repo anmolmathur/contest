@@ -1,6 +1,6 @@
 "use client";
 
-import { Code2, Presentation } from "lucide-react";
+import { Code2, Lightbulb, Presentation } from "lucide-react";
 import { CONTEST_TYPES, type ContestType } from "@/lib/contest-config";
 import { getPreset } from "@/lib/contest-types";
 import { cn } from "@/lib/utils";
@@ -8,11 +8,13 @@ import { cn } from "@/lib/utils";
 const ICONS: Record<ContestType, typeof Code2> = {
   hackathon: Code2,
   business_symposium: Presentation,
+  ideathon: Lightbulb,
 };
 
 export const TYPE_BADGE_CLS: Record<ContestType, string> = {
   hackathon: "bg-electric-blue/20 text-electric-blue",
   business_symposium: "bg-amber-500/20 text-amber-300",
+  ideathon: "bg-emerald-500/20 text-emerald-300",
 };
 
 /** Small pill showing the contest type. */
@@ -36,7 +38,7 @@ export function ContestTypePicker({
   compact?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Contest type">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Contest type">
       {CONTEST_TYPES.map((t) => {
         const p = getPreset(t);
         const Icon = ICONS[t];

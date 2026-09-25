@@ -9,7 +9,7 @@ import { CriterionInput } from "@/components/scoring/CriterionInput";
 import { SubmissionView } from "@/components/submissions/SubmissionView";
 import { useContest, useContestConfig } from "@/lib/contest-context";
 import { scaleDefault, scaleLabelFor } from "@/lib/contest-config";
-import { calculateWeightedScore } from "@/lib/scoring";
+import { calculateWeightedScore, criteriaForPhase } from "@/lib/scoring";
 import { formatClock, remainingSeconds, useLive, useMyRole, useNow } from "@/components/live/useLive";
 
 interface MyScore {
@@ -55,8 +55,12 @@ function JuryConsole() {
   const { contest } = useContest();
   const { t, scale, submissionFields } = useContestConfig();
   const slug = contest.slug;
-  const criteria = useMemo(() => contest.scoringCriteria ?? [], [contest.scoringCriteria]);
   const { data, error, offset } = useLive(slug, 2500);
+  const livePhase = data?.phase?.phase ?? null;
+  const criteria = useMemo(
+    () => criteriaForPhase(contest.scoringCriteria ?? [], livePhase),
+    [contest.scoringCriteria, livePhase],
+  );
   const now = useNow(offset, 500);
 
   const [mine, setMine] = useState<Record<string, MyScore>>({});

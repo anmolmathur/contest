@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contests, contestUsers, scores, submissions, teams } from "@/lib/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { canAdminContest, canJudgeContest, isContestMutable, resolveContest } from "@/lib/contest-auth";
 import { EMPTY_LIVE_STATE, resolveLiveState, type LiveState } from "@/lib/contest-config";
 import { resolveSubmissionFields, submissionHeadline, submissionValues } from "@/lib/submission-fields";
@@ -31,7 +31,7 @@ async function viewerFor(contestId: string): Promise<{ viewer: Viewer; userId: s
 
 async function approvedTeams(contestId: string) {
   const rows = await db.query.teams.findMany({
-    where: and(eq(teams.contestId, contestId), eq(teams.approved, true)),
+    where: and(eq(teams.contestId, contestId), eq(teams.approved, true), ne(teams.status, "eliminated")),
     with: { trackRef: { columns: { name: true } } },
   });
   return rows.map((t) => ({

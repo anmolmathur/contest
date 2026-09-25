@@ -11,6 +11,7 @@ import {
   submissionValues,
 } from "@/lib/submission-fields";
 import { scorablePhases } from "@/lib/scoring";
+import { submissionBlocker } from "@/lib/stage-gates";
 import {
   extractSubmissionInput,
   parsePhase,
@@ -101,12 +102,27 @@ export async function POST(
       );
     }
 
+    // Elimination, gate decisions, crew composition, validated metrics.
+    const blocker = await submissionBlocker(contest, team, phase);
+    if (blocker) {
+      return NextResponse.json({ error: blocker }, { status: 400 });
+    }
+
     const fieldDefs = resolveSubmissionFields(contest.submissionFields);
-    const result = validateSubmission(fieldDefs, extractSubmissionInput(body), phase);
+    const teamPaths = Array.isArray(team.solutionPaths) ? (team.solutionPaths as string[]) : null;
+    const result = validateSubmission(fieldDefs, extractSubmissionInput(body), phase, teamPaths);
     if (result.error !== undefined) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
     const values = result.values;
+
+    // Declared solution paths live on the team too (drives path-conditional fields).
+    if (Array.isArray(values.solutionPaths)) {
+      await db
+        .update(teams)
+        .set({ solutionPaths: values.solutionPaths, updatedAt: new Date() })
+        .where(eq(teams.id, team.id));
+    }
     const legacy = usesLegacySubmissionColumns(contest) ? legacyColumnsFrom(values) : {};
 
     // Check if a submission already exists for this team and phase

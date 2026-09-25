@@ -13,6 +13,16 @@ export interface ScoringCriterion {
   key: string;
   weight: number;
   description?: string;
+  /** Stages this criterion applies to (empty/undefined = every stage). */
+  phases?: number[];
+}
+
+/** Criteria that apply to a stage (per-stage rubrics, e.g. the Ideathon Idea Pitch). */
+export function criteriaForPhase<T extends { phases?: number[] }>(criteria: T[], phase: number | null | undefined): T[] {
+  if (phase === null || phase === undefined) return criteria;
+  const matching = criteria.filter((c) => !c.phases || c.phases.length === 0 || c.phases.includes(phase));
+  // A misconfigured contest (no criterion for this stage) falls back to all criteria.
+  return matching.length > 0 ? matching : criteria;
 }
 
 export interface PhaseEntry {
@@ -83,7 +93,7 @@ export function teamPhaseScores(
   const phases = scorablePhases(phaseConfig);
   const best: Record<number, number> = {};
   for (const sub of teamSubmissions) {
-    const avg = averageWeighted(sub.scores, scoringCriteria, scaleRaw);
+    const avg = averageWeighted(sub.scores, criteriaForPhase(scoringCriteria, sub.phase), scaleRaw);
     if (avg === null) continue;
     if (best[sub.phase] === undefined || avg > best[sub.phase]) best[sub.phase] = avg;
   }

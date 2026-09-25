@@ -52,6 +52,7 @@ const EDIT_EXAMPLES = [
 const TYPE_LABEL: Record<string, string> = {
   hackathon: "Hackathon",
   business_symposium: "Business Symposium",
+  ideathon: "Ideathon",
 };
 
 const KEY_LABEL: Record<string, string> = {

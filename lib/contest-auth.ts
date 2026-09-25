@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { contests, contestUsers, users, teams } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
-export type ContestRole = "admin" | "judge" | "participant" | "mentor";
+export type ContestRole = "admin" | "judge" | "participant" | "mentor" | "validator";
 
 /**
  * Mentors are attached to a team but do NOT count as participants:
@@ -37,7 +37,8 @@ export type ContestRole = "admin" | "judge" | "participant" | "mentor";
 export type EffectiveContestRole = {
   // 'mentor' means attached to a team as an advisor — read-only, doesn't
   // participate or judge. See the ContestRole docs above.
-  access: "none" | "inspect" | "participant" | "judge" | "admin" | "mentor";
+  // 'validator' = Auditor who validates impact metrics (scope in participantRole: Data | Finance).
+  access: "none" | "inspect" | "participant" | "judge" | "admin" | "mentor" | "validator";
   source: "contest_users" | "platform_override" | "none";
   participantRole: string | null;
   teamId: string | null;
@@ -217,6 +218,22 @@ export async function canJudgeContest(
   _userEmail?: string,
 ): Promise<boolean> {
   return isContestJudge(userId, contestId);
+}
+
+/**
+ * Can the caller validate impact metrics? Contest admins/platform admins can
+ * validate anything; validators only within their scope ("Data" validates
+ * baselines/actuals, "Finance" sets ₹ value). No scope = both.
+ */
+export async function canValidateContest(
+  userId: string,
+  contestId: string,
+  scope: "Data" | "Finance",
+): Promise<boolean> {
+  const eff = await getEffectiveContestRole(userId, contestId);
+  if (eff.access === "admin") return true;
+  if (eff.access !== "validator") return false;
+  return !eff.participantRole || eff.participantRole === scope;
 }
 
 /**

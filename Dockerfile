@@ -1,9 +1,9 @@
 # Multi-stage Dockerfile for Next.js 16 Application
 #
 # Base image is a build arg so each environment can pick its registry:
-#   TeamLease AWS (prod):  --build-arg NODE_IMAGE=163742846785.dkr.ecr.ap-south-1.amazonaws.com/node-20-alpine@sha256:1565ec2a76d08d442a300c142d9e513e51a76acbfca3c67ca385ab76bc9b9a1f
-#   Hetzner / local:       default public node:20-alpine
-ARG NODE_IMAGE=node:20-alpine
+#   TeamLease AWS (prod):  default — the TeamLease ECR node image (the pipeline needs no build args)
+#   Hetzner / local:       --build-arg NODE_IMAGE=node:20-alpine
+ARG NODE_IMAGE=163742846785.dkr.ecr.ap-south-1.amazonaws.com/node-20-alpine@sha256:1565ec2a76d08d442a300c142d9e513e51a76acbfca3c67ca385ab76bc9b9a1f
 FROM ${NODE_IMAGE} AS base
 
 # Install dependencies only when needed

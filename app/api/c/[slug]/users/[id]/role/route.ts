@@ -36,7 +36,7 @@ export async function PUT(
       return NextResponse.json({ error: "role is required" }, { status: 400 });
     }
 
-    const validRoles = ["admin", "judge", "participant"];
+    const validRoles = ["admin", "judge", "participant", "validator"];
     if (!validRoles.includes(role)) {
       return NextResponse.json(
         { error: `Invalid role. Must be one of: ${validRoles.join(", ")}` },
@@ -68,7 +68,15 @@ export async function PUT(
       .update(contestUsers)
       .set({
         role,
-        participantRole: role === "participant" ? (participantRole || null) : null,
+        // Validators keep their scope ("Data" | "Finance") in participantRole.
+        participantRole:
+          role === "participant"
+            ? participantRole || null
+            : role === "validator"
+              ? participantRole === "Data" || participantRole === "Finance"
+                ? participantRole
+                : null
+              : null,
       })
       .where(
         and(

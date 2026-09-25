@@ -6,7 +6,8 @@ import { ContestProvider } from "@/lib/contest-context";
 import { ContestStatusBanner } from "@/components/ContestStatusBanner";
 import { AssistantWidget } from "@/components/AssistantWidget";
 import { ContestNav, HideOnLiveScreens, HideOnStage } from "@/components/public/ContestChrome";
-import { resolveSettings } from "@/lib/contest-config";
+import { isContestType, resolveSettings } from "@/lib/contest-config";
+import { resolveWordmark } from "@/lib/wordmark";
 import type { Metadata } from "next";
 
 // Import the Contest type for casting jsonb fields
@@ -98,7 +99,7 @@ export default async function ContestLayout({
     startDate: contest.startDate?.toISOString() ?? null,
     endDate: contest.endDate?.toISOString() ?? null,
     registrationDeadline: contest.registrationDeadline?.toISOString() ?? null,
-    contestType: (contest.contestType === "business_symposium" ? "business_symposium" : "hackathon") as Contest["contestType"],
+    contestType: (isContestType(contest.contestType) ? contest.contestType : "hackathon") as Contest["contestType"],
     submissionFields: contest.submissionFields as Contest["submissionFields"],
     scoringScale: contest.scoringScale as Contest["scoringScale"],
     terminology: contest.terminology as Contest["terminology"],
@@ -107,6 +108,8 @@ export default async function ContestLayout({
     speakers: contest.speakers as Contest["speakers"],
     faqConfig: contest.faqConfig as Contest["faqConfig"],
     customDomain: contest.customDomainVerifiedAt ? contest.customDomain : null,
+    awards: (Array.isArray(contest.awards) ? contest.awards : null) as Contest["awards"],
+    wordmark: resolveWordmark(contest.brandingConfig),
     tracks: contest.tracks.map((t) => ({
       id: t.id,
       name: t.name,
@@ -131,7 +134,18 @@ export default async function ContestLayout({
         name={contest.name}
         showAgenda={hasAgenda}
         showShowcase={!!settings.showcaseEnabled}
+        showProblems={!!settings.problemBankEnabled}
+        showAgents={contest.contestType === "ideathon"}
+        showPlaybook={contest.contestType === "ideathon"}
+        wordmark={serializedContest.wordmark}
       />
+      {settings.demoBanner && (
+        <HideOnStage>
+          <div className="w-full bg-amber-400 px-4 py-1 text-center text-xs font-semibold text-black theme-fixed">
+            Demo data — every person, crew and number on this site is fictional.
+          </div>
+        </HideOnStage>
+      )}
       <ContestProvider contest={serializedContest}>
         {children}
       </ContestProvider>

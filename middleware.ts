@@ -31,12 +31,14 @@ const PUBLIC_PREFIXES = [
 ];
 
 // Contest landing / rules / results / agenda / showcase / stage are public
-const CONTEST_PUBLIC = /^\/c\/[^/]+(\/rules|\/results|\/agenda|\/showcase|\/stage)?$/;
+const CONTEST_PUBLIC = /^\/c\/[^/]+(\/rules|\/results|\/agenda|\/showcase|\/stage|\/problems|\/agents|\/playbook)?$/;
 const CONTEST_API_PUBLIC = /^\/api\/contests\/[^/]+$/;
 const TRACKS_API_PUBLIC = /^\/api\/c\/[^/]+\/tracks$/;
 const LEADERBOARD_PUBLIC = /^\/api\/c\/[^/]+\/leaderboard$/;
 const SHOWCASE_API_PUBLIC = /^\/api\/c\/[^/]+\/showcase$/;
 const LIVE_API_PUBLIC = /^\/api\/c\/[^/]+\/live$/; // stage view polls this (GET only)
+// Ideathon: Problem Bank, value meter, awards, agent registry, playbook PDFs (GET only)
+const IDEATHON_API_PUBLIC = /^\/api\/c\/[^/]+\/(problems|impact-summary|awards|agents|playbook\/[a-z-]+\/pdf)$/;
 const ASSISTANT_PUBLIC = /^\/api\/c\/[^/]+\/assistant$/; // contestant Q&A works before login
 
 function isPublic(pathname: string, method: string): boolean {
@@ -46,6 +48,7 @@ function isPublic(pathname: string, method: string): boolean {
   if (method === "GET" && (CONTEST_API_PUBLIC.test(pathname) || TRACKS_API_PUBLIC.test(pathname))) return true;
   if (method === "GET" && (LEADERBOARD_PUBLIC.test(pathname) || SHOWCASE_API_PUBLIC.test(pathname))) return true;
   if (method === "GET" && LIVE_API_PUBLIC.test(pathname)) return true;
+  if (method === "GET" && IDEATHON_API_PUBLIC.test(pathname)) return true;
   if (method === "POST" && ASSISTANT_PUBLIC.test(pathname)) return true;
   if (pathname.startsWith("/api/uploads/local/")) return true; // served files (unguessable ids)
   return false;

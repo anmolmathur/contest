@@ -11,7 +11,8 @@ import { contestTerminology } from "@/lib/api-input";
  * GET /api/c/[slug]/leaderboard  (public)
  *
  * {
- *   leaderboard: [{ teamId, teamName, track, trackId, leaderId, members, phaseScores: { phaseN }, totalScore }],
+ *   leaderboard: [{ teamId, teamName, track, trackId, leaderId, members, phaseScores: { phaseN }, totalScore, problem }],
+ *   eliminated: [{ teamId, teamName, track, outAt }],   // teams "out" at a gate stage (not ranked)
  *   scoringCriteria, phaseConfig (scorable phases only),
  *   scoringScale, terminology
  * }
@@ -50,6 +51,8 @@ export async function GET(
             name: true,
           },
         },
+        problem: { columns: { id: true, title: true } },
+        stageDecisions: { columns: { phase: true, decision: true } },
         contestMembers: {
           where: eq(contestUsers.contestId, contest.id),
           with: {
@@ -73,7 +76,8 @@ export async function GET(
         })
       : [];
 
-    const leaderboardData = approvedTeams.map((team) => {
+    const ranked = approvedTeams.filter((t) => t.status !== "eliminated");
+    const leaderboardData = ranked.map((team) => {
       const teamSubmissions = allSubmissions.filter((s) => s.teamId === team.id);
       const { phaseScores, totalScore } = teamPhaseScores(
         teamSubmissions,
@@ -92,6 +96,7 @@ export async function GET(
         isLeader: cu.user?.id === team.leaderId,
         role: cu.role as "admin" | "judge" | "participant" | "mentor",
         participantRole: cu.participantRole ?? null,
+        extraRoles: Array.isArray(cu.extraRoles) ? (cu.extraRoles as string[]) : [],
       }));
 
       return {
@@ -103,8 +108,25 @@ export async function GET(
         members,
         phaseScores,
         totalScore,
+        problem: team.problem ? { id: team.problem.id, title: team.problem.title } : null,
       };
     });
+
+    const phaseName = (n: number) =>
+      ((Array.isArray(contest.phaseConfig) ? contest.phaseConfig : []) as Array<{ phase: number; name: string }>).find(
+        (p) => p.phase === n,
+      )?.name ?? null;
+    const eliminated = approvedTeams
+      .filter((t) => t.status === "eliminated")
+      .map((t) => {
+        const out = t.stageDecisions.find((d) => d.decision === "out");
+        return {
+          teamId: t.id,
+          teamName: t.name,
+          track: t.trackRef?.name || t.track || null,
+          outAt: out ? phaseName(out.phase) : null,
+        };
+      });
 
     // Sort by total score descending
     leaderboardData.sort((a, b) => b.totalScore - a.totalScore);
@@ -112,6 +134,7 @@ export async function GET(
     return NextResponse.json(
       {
         leaderboard: leaderboardData,
+        eliminated,
         scoringCriteria,
         phaseConfig: scorablePhases(contest.phaseConfig),
         scoringScale,

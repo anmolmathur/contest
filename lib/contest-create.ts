@@ -4,8 +4,8 @@
  * three produce identical contests.
  */
 import { db } from "@/lib/db";
-import { contests, tracks } from "@/lib/db/schema";
-import { getPreset } from "@/lib/contest-types";
+import { contests, problemStatements, tracks } from "@/lib/db/schema";
+import { getPreset, type ContestAward, type PresetProblem } from "@/lib/contest-types";
 import { isContestType, type ContestType } from "@/lib/contest-config";
 
 export type ContestOverrides = Partial<{
@@ -39,6 +39,8 @@ export type ContestOverrides = Partial<{
   endDate: Date | null;
   registrationDeadline: Date | null;
   tracks: Array<{ name: string; description?: string | null; icon?: string | null }>;
+  awards: ContestAward[];
+  problemBank: PresetProblem[];
 }>;
 
 export async function createContestFromPreset(input: {
@@ -89,18 +91,42 @@ export async function createContestFromPreset(input: {
       startDate: o.startDate ?? null,
       endDate: o.endDate ?? null,
       registrationDeadline: o.registrationDeadline ?? null,
+      awards: o.awards ?? preset.awards ?? null,
     })
     .returning();
 
   const trackList = o.tracks ?? preset.tracks;
-  if (trackList.length > 0) {
-    await db.insert(tracks).values(
-      trackList.map((t, i) => ({
+  const insertedTracks =
+    trackList.length > 0
+      ? await db
+          .insert(tracks)
+          .values(
+            trackList.map((t, i) => ({
+              contestId: contest.id,
+              name: t.name,
+              description: t.description ?? null,
+              icon: t.icon ?? null,
+              sortOrder: i,
+            })),
+          )
+          .returning({ id: tracks.id, name: tracks.name })
+      : [];
+
+  const bank = o.problemBank ?? preset.problemBank ?? [];
+  if (bank.length > 0) {
+    const trackId = (name: string) => insertedTracks.find((t) => t.name === name)?.id ?? null;
+    await db.insert(problemStatements).values(
+      bank.map((p, i) => ({
         contestId: contest.id,
-        name: t.name,
-        description: t.description ?? null,
-        icon: t.icon ?? null,
+        trackId: trackId(p.track),
+        title: p.title,
+        description: p.description,
+        ownerDepartment: p.ownerDepartment ?? null,
+        metricTemplate: p.metricTemplate ?? null,
+        maxTeams: 2,
+        status: "open",
         sortOrder: i,
+        createdBy: input.createdBy,
       })),
     );
   }

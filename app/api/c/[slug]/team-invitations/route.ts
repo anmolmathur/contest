@@ -5,7 +5,7 @@ import { teams, teamInvitations, contestUsers, users } from "@/lib/db/schema";
 import { eq, and, or } from "drizzle-orm";
 import { resolveContest } from "@/lib/contest-auth";
 import { dispatchTeamInvite } from "@/lib/notifications/dispatch";
-import { checkTeamSlot } from "@/lib/team-capacity";
+import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
 
 export async function GET(
   _req: NextRequest,
@@ -103,6 +103,7 @@ export async function POST(
     teamId,
     userId: inviteeUserId,
     participantRole: cu?.participantRole ?? null,
+    extraRoles: extraRolesOf(cu?.extraRoles),
     mode: "join",
   });
   if (slotError) {

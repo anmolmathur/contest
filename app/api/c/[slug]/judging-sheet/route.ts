@@ -28,7 +28,7 @@ import { teams, submissions, scores, users } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { resolveContest, canJudgeContest, isPlatformAdmin } from "@/lib/contest-auth";
 import { resolveScale, term, termPlural, type SubmissionField } from "@/lib/contest-config";
-import { resolveSubmissionFields, fieldsForPhase, submissionValues } from "@/lib/submission-fields";
+import { resolveSubmissionFields, fieldsForPhase, submissionValues, displayValue } from "@/lib/submission-fields";
 import { contestTerminology } from "@/lib/api-input";
 import ExcelJS from "exceljs";
 
@@ -332,6 +332,8 @@ export async function GET(
           cell.value = { text: truncate(text, 2000), hyperlink: absolute(list[0]) };
           cell.font = { color: { argb: C_LINK }, underline: true };
           if (list.length > 1) cell.note = `${list.length} links — the cell opens the first one.`;
+        } else if (f.type === "agentCharter") {
+          cell.value = truncate(displayValue(f, raw));
         } else {
           cell.value = truncate(list.join("\n"));
         }

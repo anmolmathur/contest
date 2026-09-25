@@ -45,14 +45,20 @@ export interface DraftPhase {
   /** Activities */
   details: string[];
   deliverables: string[];
+  /** Go / Go-with-changes / Out decision after this round (Ideathon). */
+  gate?: boolean;
+  /** Validated impact metrics needed before submitting this round (Ideathon). */
+  requires?: Array<"baseline" | "actual">;
 }
 
 export interface DraftCriterion {
   name: string;
   key: string;
-  /** 0..1, all weights sum to 1.0 */
+  /** 0..1, all weights sum to 1.0 (per round when `phases` is used) */
   weight: number;
   description: string;
+  /** Rounds this criterion applies to (per-round rubrics). */
+  phases?: number[];
 }
 
 export interface DraftPrize {
@@ -65,6 +71,8 @@ export interface DraftPrize {
 export interface DraftRole {
   role: string;
   maxPerTeam: number;
+  minPerTeam?: number;
+  description?: string;
 }
 
 export interface DraftFaq {
@@ -154,7 +162,18 @@ export const DRAFT_KEYS: (keyof ContestDraftShape)[] = [
   "settings",
 ];
 
-export const FIELD_TYPES: SubmissionFieldType[] = ["text", "textarea", "url", "urlList", "file", "fileList", "select"];
+export const FIELD_TYPES: SubmissionFieldType[] = [
+  "text",
+  "textarea",
+  "url",
+  "urlList",
+  "file",
+  "fileList",
+  "select",
+  "multiselect",
+  "number",
+  "agentCharter",
+];
 const TERM_KEYS: TermKey[] = ["track", "team", "phase", "judge", "submission", "member", "contest"];
 const SPEAKER_ROLES: SpeakerRole[] = ["speaker", "panelist", "jury", "mentor", "host"];
 const AGENDA_KINDS = Object.keys(AGENDA_KIND_LABELS) as AgendaKind[];
@@ -300,6 +319,10 @@ function sanitizePhases(v: unknown): DraftPhase[] | undefined {
     description: str(p.description, 800) ?? "",
     details: strList(p.details ?? p.activities, 12, 300),
     deliverables: strList(p.deliverables, 12, 300),
+    ...(bool(p.gate) ? { gate: true } : {}),
+    ...(Array.isArray(p.requires)
+      ? { requires: p.requires.filter((x): x is "baseline" | "actual" => x === "baseline" || x === "actual") }
+      : {}),
   }));
 }
 
@@ -336,10 +359,15 @@ function sanitizeCriteria(v: unknown, warnings: string[]): DraftCriterion[] | un
       if (w > 1) w = w / 100; // "20" meaning 20%
       const rawKey = str(c.key, 40);
       const key = uniqueKey(rawKey && /^[a-zA-Z][a-zA-Z0-9]*$/.test(rawKey) ? rawKey : camelKey(name), used);
-      return { name, key, weight: w, description: str(c.description, 400) ?? "" };
+      const phases = Array.isArray(c.phases)
+        ? Array.from(new Set(c.phases.map((p) => int(p, 1, 50)).filter((p): p is number => p !== undefined))).sort((a, b) => a - b)
+        : [];
+      return { name, key, weight: w, description: str(c.description, 400) ?? "", ...(phases.length ? { phases } : {}) };
     })
     .filter((c): c is DraftCriterion => !!c);
   if (rows.length === 0) return [];
+  // Per-round rubrics: weights are normalised within each round at scoring time.
+  if (rows.some((r) => r.phases?.length)) return rows.map((r) => ({ ...r, weight: Math.max(0, Math.min(1, r.weight)) }));
   const sum = rows.reduce((a, c) => a + c.weight, 0);
   const normalised = normalizeWeights(rows.map((r) => r.weight));
   if (Math.abs(sum - 1) > 0.005) warnings.push(`Criteria weights summed to ${sum.toFixed(2)} — normalised to 1.00.`);
@@ -407,7 +435,7 @@ function sanitizeFields(v: unknown, validPhases: number[] | null, warnings: stri
       f.accept = accept || ".pdf,.doc,.docx,.ppt,.pptx";
       f.maxSizeMb = int(raw.maxSizeMb, 1, 100) ?? 25;
     }
-    if (type === "select") {
+    if (type === "select" || type === "multiselect") {
       const options = strList(raw.options, 20, 80);
       if (options.length === 0) {
         f.type = "text";
@@ -415,6 +443,14 @@ function sanitizeFields(v: unknown, validPhases: number[] | null, warnings: stri
         f.options = options;
       }
     }
+    if (type === "number") {
+      const min = num(raw.min);
+      const max = num(raw.max);
+      if (min !== undefined) f.min = min;
+      if (max !== undefined) f.max = max;
+    }
+    const forPaths = strList(raw.requiredForPaths, 8, 80);
+    if (forPaths.length) f.requiredForPaths = forPaths;
     out.push(f);
   }
   return out;
@@ -438,7 +474,14 @@ function sanitizeRoles(v: unknown): DraftRole[] | undefined {
     const role = str(r.role ?? r.name, 60);
     if (!role || seen.has(role.toLowerCase())) continue;
     seen.add(role.toLowerCase());
-    out.push({ role, maxPerTeam: int(r.maxPerTeam, 1, 20) ?? 1 });
+    const minPerTeam = int(r.minPerTeam, 0, 20);
+    const description = str(r.description, 200);
+    out.push({
+      role,
+      maxPerTeam: int(r.maxPerTeam, 1, 20) ?? 1,
+      ...(minPerTeam ? { minPerTeam } : {}),
+      ...(description ? { description } : {}),
+    });
   }
   return out;
 }

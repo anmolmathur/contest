@@ -30,6 +30,9 @@ const FIELD_TYPE_LABELS: Record<SubmissionField["type"], string> = {
   file: "File upload",
   fileList: "File uploads",
   select: "Choice",
+  multiselect: "Choices",
+  number: "Number",
+  agentCharter: "Agent Charter",
 };
 
 function formatsOf(f: SubmissionField): string | null {

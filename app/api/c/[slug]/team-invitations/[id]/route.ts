@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { teamInvitations, teams, contestUsers, users } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest } from "@/lib/contest-auth";
-import { checkTeamSlot } from "@/lib/team-capacity";
+import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
 
 /**
  * PATCH: accept / decline / cancel.  Body: { action: 'accept' | 'decline' | 'cancel' }
@@ -89,6 +89,7 @@ export async function PATCH(
       teamId: inv.teamId,
       userId: joinerUserId,
       participantRole: existingCu?.participantRole ?? null,
+      extraRoles: extraRolesOf(existingCu?.extraRoles),
       mode: "join",
     });
     if (slotError) {

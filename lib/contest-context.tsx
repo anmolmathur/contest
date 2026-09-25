@@ -16,7 +16,8 @@ import {
   type Terminology,
 } from "@/lib/contest-config";
 import { resolveSubmissionFields } from "@/lib/submission-fields";
-import { getPreset, type LandingCopy } from "@/lib/contest-types";
+import { getPreset, type ContestAward, type LandingCopy } from "@/lib/contest-types";
+import type { WordmarkSegment } from "@/lib/wordmark";
 
 export interface ContestTrack {
   id: string;
@@ -31,6 +32,8 @@ export interface ScoringCriterion {
   key: string;
   weight: number;
   description: string;
+  /** Stages this criterion applies to (empty/undefined = all). */
+  phases?: number[];
 }
 
 export interface PhaseConfig {
@@ -42,6 +45,10 @@ export interface PhaseConfig {
   description: string;
   details: string[];
   deliverables: string[];
+  /** Go / Go-with-changes / Out decision after this stage. */
+  gate?: boolean;
+  /** Validated impact metrics needed before this stage can be submitted. */
+  requires?: Array<"baseline" | "actual">;
 }
 
 export interface Prize {
@@ -54,6 +61,8 @@ export interface Prize {
 export interface RoleConfig {
   role: string;
   maxPerTeam: number;
+  minPerTeam?: number;
+  description?: string;
 }
 
 export interface Contest {
@@ -90,6 +99,8 @@ export interface Contest {
   speakers: Speaker[] | null;
   faqConfig: Array<{ question: string; answer: string }> | null;
   customDomain: string | null;
+  awards: ContestAward[] | null;
+  wordmark: WordmarkSegment[] | null;
 }
 
 interface ContestContextType {

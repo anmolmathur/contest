@@ -5,9 +5,9 @@
  * by both server routes and client components.
  */
 
-export type ContestType = "hackathon" | "business_symposium";
+export type ContestType = "hackathon" | "business_symposium" | "ideathon";
 
-export const CONTEST_TYPES: ContestType[] = ["hackathon", "business_symposium"];
+export const CONTEST_TYPES: ContestType[] = ["hackathon", "business_symposium", "ideathon"];
 
 export function isContestType(v: unknown): v is ContestType {
   return typeof v === "string" && (CONTEST_TYPES as string[]).includes(v);
@@ -24,7 +24,10 @@ export type SubmissionFieldType =
   | "urlList"
   | "file"
   | "fileList"
-  | "select";
+  | "select"
+  | "multiselect"
+  | "number"
+  | "agentCharter";
 
 export interface SubmissionField {
   key: string;
@@ -38,10 +41,43 @@ export interface SubmissionField {
   /** For file fields: comma-separated extensions, e.g. ".pdf,.pptx" */
   accept?: string;
   maxSizeMb?: number;
-  /** For select fields */
+  /** For select / multiselect fields */
   options?: string[];
+  /** For number fields */
+  min?: number;
+  max?: number;
+  /**
+   * Only required when the team declared one of these solution paths
+   * (Ideathon). The field is still shown to everyone.
+   */
+  requiredForPaths?: string[];
 }
 
+/** One agent in an Agent Charter (Ideathon). */
+export interface AgentCharterEntry {
+  name: string;
+  platform: string;
+  task: string;
+  /** L1 Assist | L2 Copilot | L3 Agent-with-approval | L4 Autonomous-with-guardrails */
+  autonomy: string;
+  humanCheckpoint: string;
+  dataAccessed: string;
+  guardrails: string;
+  monthlyCostInr?: number | null;
+}
+
+export const AUTONOMY_LEVELS = [
+  { key: "L1", label: "L1 · Assist", hint: "AI suggests, a human does the work" },
+  { key: "L2", label: "L2 · Copilot", hint: "AI drafts, a human reviews every output" },
+  { key: "L3", label: "L3 · Agent with approval", hint: "AI acts, a human approves key steps" },
+  { key: "L4", label: "L4 · Autonomous with guardrails", hint: "AI acts alone inside hard limits" },
+] as const;
+
+/**
+ * Stored values are strings or string lists. `multiselect` is a string list,
+ * `number` a numeric string and `agentCharter` a JSON-encoded
+ * AgentCharterEntry[] (see parseAgentCharter in lib/submission-fields.ts).
+ */
 export type SubmissionValues = Record<string, string | string[]>;
 
 // ---------------------------------------------------------------------------
@@ -85,7 +121,7 @@ export function scaleDefault(scale: ScoringScale): number {
 // Terminology
 // ---------------------------------------------------------------------------
 
-export type TermKey = "track" | "team" | "phase" | "judge" | "submission" | "member" | "contest";
+export type TermKey = "track" | "team" | "phase" | "judge" | "submission" | "member" | "contest" | "validator";
 
 export type Terminology = Partial<Record<TermKey, string>>;
 
@@ -97,6 +133,7 @@ const BASE_TERMS: Record<TermKey, string> = {
   submission: "Submission",
   member: "Member",
   contest: "Contest",
+  validator: "Validator",
 };
 
 /** Singular term, falling back to the generic English default. */
@@ -133,6 +170,21 @@ export interface ContestSettings {
   theme?: string;
   /** Default colour mode for visitors (they can still toggle). Unset → by contest type. */
   colorMode?: "light" | "dark";
+  // ---- Ideathon ----
+  /** Canonical department list; enrolment/profile show a select when set. */
+  departments?: string[];
+  /** Teams must span at least this many departments before submitting. */
+  minDepartmentsPerTeam?: number;
+  /** Minimum crew size (max is contests.maxTeamMembers). */
+  minTeamMembers?: number;
+  /** Show the Problem Bank (problem_statements) instead of free-form tracks only. */
+  problemBankEnabled?: boolean;
+  /** Solution paths a team can declare (e.g. Process Re-engineering, Agent Build). */
+  solutionPaths?: string[];
+  /** Enable validated before/after impact metrics + validators. */
+  impactMetricsEnabled?: boolean;
+  /** Show a "demo data" banner on every page. */
+  demoBanner?: boolean;
 }
 
 export function resolveSettings(raw: unknown): ContestSettings {
@@ -145,6 +197,13 @@ export function resolveSettings(raw: unknown): ContestSettings {
     assistantEnabled: s.assistantEnabled !== false,
     theme: s.theme ?? undefined,
     colorMode: s.colorMode === "light" || s.colorMode === "dark" ? s.colorMode : undefined,
+    departments: Array.isArray(s.departments) ? s.departments.filter((d) => typeof d === "string" && d.trim()) : undefined,
+    minDepartmentsPerTeam: typeof s.minDepartmentsPerTeam === "number" ? s.minDepartmentsPerTeam : undefined,
+    minTeamMembers: typeof s.minTeamMembers === "number" ? s.minTeamMembers : undefined,
+    problemBankEnabled: !!s.problemBankEnabled,
+    solutionPaths: Array.isArray(s.solutionPaths) ? s.solutionPaths.filter((d) => typeof d === "string" && d.trim()) : undefined,
+    impactMetricsEnabled: !!s.impactMetricsEnabled,
+    demoBanner: !!s.demoBanner,
   };
 }
 

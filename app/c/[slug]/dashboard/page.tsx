@@ -9,6 +9,9 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import GlassCard from "@/components/GlassCard";
 import { DynamicSubmissionForm } from "@/components/submissions/DynamicSubmissionForm";
+import { CrewPanel } from "@/components/ideathon/CrewPanel";
+import { NextActionCard } from "@/components/ideathon/NextActionCard";
+import { ImpactMetricsPanel } from "@/components/ideathon/ImpactMetricsPanel";
 import { SubmissionView } from "@/components/submissions/SubmissionView";
 import { submissionValues, validateSubmission } from "@/lib/submission-fields";
 import type { SubmissionValues } from "@/lib/contest-config";
@@ -68,6 +71,8 @@ interface Team {
   leaderId: string | null;
   approved: boolean;
   trackRef?: { id: string; name: string } | null;
+  solutionPaths?: string[] | null;
+  status?: string;
 }
 
 interface TeamMember {
@@ -135,7 +140,8 @@ function valuesOf(sub: Submission): SubmissionValues {
 
 export default function ContestDashboardPage() {
   const { contest } = useContest();
-  const { t, tp, submissionFields, settings } = useContestConfig();
+  const { t, tp, submissionFields, settings, contestType } = useContestConfig();
+  const isIdeathon = contestType === "ideathon";
   const { data: session, status } = useSession();
   const router = useRouter();
 
@@ -1602,6 +1608,29 @@ export default function ContestDashboardPage() {
           </Dialog>
 
           {/* ============================================================ */}
+          {/* Ideathon: crew checklist, gate decisions, impact metrics     */}
+          {/* ============================================================ */}
+
+          {isIdeathon && contestMembership && <NextActionCard role={contestMembership.role} />}
+
+          {team && isIdeathon && session?.user?.id && (
+            <>
+              <CrewPanel
+                teamId={team.id}
+                myUserId={session.user.id}
+                canEdit={contestMembership?.role === "participant"}
+                onChanged={() => {
+                  void fetchMembership();
+                  void loadTeamData(team.id);
+                }}
+              />
+              {settings.impactMetricsEnabled && (
+                <ImpactMetricsPanel teamId={team.id} canEdit={contestMembership?.role === "participant"} />
+              )}
+            </>
+          )}
+
+          {/* ============================================================ */}
           {/* Leaderboard Section                                           */}
           {/* ============================================================ */}
 
@@ -1778,6 +1807,7 @@ export default function ContestDashboardPage() {
                             contestId={contest.id}
                             teamId={team.id}
                             disabled={submitting}
+                            solutionPaths={team.solutionPaths}
                           />
                         ) : (
                           <p className="text-sm text-gray-500">

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { teams, users, contestUsers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
-import { checkTeamSlot } from "@/lib/team-capacity";
+import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
 
 export async function POST(
   req: NextRequest,
@@ -87,6 +87,7 @@ export async function POST(
       teamId,
       userId,
       participantRole: targetContestUser.participantRole,
+      extraRoles: extraRolesOf(targetContestUser.extraRoles),
       mode: "join",
     });
     if (slotError) {

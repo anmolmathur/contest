@@ -200,7 +200,9 @@ export default function HomePage() {
                             className={`px-3 py-1 rounded-full text-xs font-semibold border ${
                               contest.contestType === "business_symposium"
                                 ? "border-hot-pink/40 bg-hot-pink/10 text-pink-200"
-                                : "border-electric-blue/40 bg-electric-blue/10 text-blue-200"
+                                : contest.contestType === "ideathon"
+                                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                                  : "border-electric-blue/40 bg-electric-blue/10 text-blue-200"
                             }`}
                           >
                             {getPreset(contest.contestType).label}

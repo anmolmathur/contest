@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CriterionInput } from "@/components/scoring/CriterionInput";
 import { SubmissionView } from "@/components/submissions/SubmissionView";
-import { calculateWeightedScore } from "@/lib/scoring";
+import { calculateWeightedScore, criteriaForPhase } from "@/lib/scoring";
+import { JuryTeamContext } from "@/components/ideathon/JuryTeamContext";
 import { scaleDefault, scaleLabelFor, type SubmissionValues } from "@/lib/contest-config";
 import { submissionValues } from "@/lib/submission-fields";
 import {
@@ -251,7 +252,7 @@ export default function ContestJudgingPage() {
     const existingScore = scoresMap.get(submission.id);
     const initial: Record<string, number> = {};
 
-    for (const c of scoringCriteria) {
+    for (const c of criteriaForPhase(scoringCriteria, submission.phase)) {
       const prev = existingScore?.criteriaScores?.[c.key];
       initial[c.key] = typeof prev === "number" ? prev : defaultScore;
     }
@@ -263,7 +264,9 @@ export default function ContestJudgingPage() {
   const getPhaseMaxPoints = (phase: number) => phaseMaxPoints[phase] || 25;
 
   // Live preview: normalised 0-100 weighted score and the phase points it maps to.
-  const weightedPreview = calculateWeightedScore(criteriaValues, scoringCriteria, scale);
+  // Per-stage rubric (e.g. the Ideathon Idea Pitch has its own criteria).
+  const stageCriteria = criteriaForPhase(scoringCriteria, scoringSubmission?.phase);
+  const weightedPreview = calculateWeightedScore(criteriaValues, stageCriteria, scale);
   const phasePreview = (phase: number) =>
     ((weightedPreview / 100) * getPhaseMaxPoints(phase)).toFixed(2);
 
@@ -693,6 +696,10 @@ export default function ContestJudgingPage() {
                 />
               </div>
 
+              {contest.contestType === "ideathon" && (
+                <JuryTeamContext teamId={scoringTeam.id} phase={scoringSubmission.phase} onDecided={loadJudgingData} />
+              )}
+
               {/* Scoring Instructions */}
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
                 <h4 className="text-blue-400 font-semibold mb-2">How to Score</h4>
@@ -733,7 +740,7 @@ export default function ContestJudgingPage() {
 
               {/* Criterion inputs on the contest's scale */}
               <div className="space-y-6">
-                {scoringCriteria.map((criterion) => (
+                {stageCriteria.map((criterion) => (
                   <div key={criterion.key}>
                     <div className="flex justify-between mb-1 gap-3">
                       <Label className="text-gray-200">

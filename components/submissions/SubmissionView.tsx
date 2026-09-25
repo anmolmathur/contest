@@ -2,7 +2,8 @@
 
 import { ExternalLink, FileText, Download } from "lucide-react";
 import type { SubmissionField, SubmissionValues } from "@/lib/contest-config";
-import { fieldsForPhase } from "@/lib/submission-fields";
+import { AUTONOMY_LEVELS } from "@/lib/contest-config";
+import { fieldsForPhase, parseAgentCharter } from "@/lib/submission-fields";
 
 function fileName(url: string): string {
   const last = url.split("?")[0].split("/").pop() ?? url;
@@ -79,7 +80,17 @@ export function SubmissionView({
           <div key={f.key}>
             <dt className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{f.label}</dt>
             <dd className="text-sm text-gray-200">
-              {isLink ? (
+              {f.type === "agentCharter" ? (
+                <AgentCharterView json={v} compact={compact} />
+              ) : f.type === "multiselect" ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {list.map((x) => (
+                    <span key={x} className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-xs text-gray-200">
+                      {x}
+                    </span>
+                  ))}
+                </div>
+              ) : isLink ? (
                 <div className={isFile && list.every(isImage) ? "flex flex-wrap gap-2" : "flex flex-col gap-1"}>
                   {list.map((u, i) => (
                     <LinkValue key={i} url={u} asFile={isFile} />
@@ -107,5 +118,47 @@ export function SubmissionView({
         );
       })}
     </dl>
+  );
+}
+
+function AgentCharterView({ json, compact }: { json: string | string[] | undefined; compact?: boolean }) {
+  const agents = parseAgentCharter(json);
+  if (agents.length === 0) return <p className="text-gray-500">—</p>;
+  return (
+    <div className="space-y-2">
+      {agents.map((a, i) => {
+        const level = AUTONOMY_LEVELS.find((l) => l.key === a.autonomy);
+        return (
+          <div key={i} className="rounded-md border border-white/10 bg-white/5 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-white">{a.name}</span>
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-200">{level?.label ?? a.autonomy}</span>
+              {a.platform && <span className="text-xs text-gray-400">on {a.platform}</span>}
+              {a.monthlyCostInr ? <span className="ml-auto text-xs text-gray-400">₹{a.monthlyCostInr.toLocaleString("en-IN")}/mo</span> : null}
+            </div>
+            <p className={`mt-1 whitespace-pre-wrap text-gray-300 ${compact ? "line-clamp-2" : ""}`}>{a.task}</p>
+            {!compact && (
+              <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-gray-400 sm:grid-cols-3">
+                {a.humanCheckpoint && (
+                  <div>
+                    <span className="text-gray-500">Human check:</span> {a.humanCheckpoint}
+                  </div>
+                )}
+                {a.dataAccessed && (
+                  <div>
+                    <span className="text-gray-500">Data:</span> {a.dataAccessed}
+                  </div>
+                )}
+                {a.guardrails && (
+                  <div>
+                    <span className="text-gray-500">Guardrails:</span> {a.guardrails}
+                  </div>
+                )}
+              </dl>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

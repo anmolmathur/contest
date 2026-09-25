@@ -23,6 +23,9 @@ const TYPE_LABELS: Record<SubmissionFieldType, string> = {
   file: "File upload",
   fileList: "Multiple files",
   select: "Dropdown",
+  multiselect: "Multiple choice",
+  number: "Number",
+  agentCharter: "Agent Charter (table)",
 };
 
 export interface PhaseOption {
@@ -191,7 +194,7 @@ export function SubmissionFieldsEditor({
                     </div>
                   </>
                 )}
-                {f.type === "select" && (
+                {(f.type === "select" || f.type === "multiselect") && (
                   <div className="md:col-span-3">
                     <Label className="text-xs text-gray-300">Options (one per line)</Label>
                     <textarea
