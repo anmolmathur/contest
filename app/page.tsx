@@ -119,7 +119,7 @@ export default function HomePage() {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.5, delay: 0.8 }}
             >
-              <Link href="/admin/contests/new">
+              <Link href="/platform/admin">
                 <GlowButton>Create Contest</GlowButton>
               </Link>
             </motion.div>
