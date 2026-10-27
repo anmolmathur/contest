@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique, boolean, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, varchar, integer, pgEnum, unique, index, boolean, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // Enums
@@ -129,7 +129,9 @@ export const tracks = pgTable("tracks", {
   icon: varchar("icon", { length: 255 }),
   sortOrder: integer("sort_order").default(0).notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
-});
+}, (table) => ({
+  contestIdx: index("tracks_contest_id_idx").on(table.contestId),
+}));
 
 // Contest Users Table (many-to-many with per-contest role)
 export const contestUsers = pgTable("contest_users", {
@@ -145,6 +147,9 @@ export const contestUsers = pgTable("contest_users", {
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
   uniqueContestUser: unique().on(table.contestId, table.userId),
+  userIdx: index("contest_users_user_id_idx").on(table.userId),
+  teamIdx: index("contest_users_team_id_idx").on(table.teamId),
+  roleIdx: index("contest_users_contest_role_idx").on(table.contestId, table.role),
 }));
 
 // Users Table (Auth.js compatible)
@@ -186,7 +191,10 @@ export const teams = pgTable("teams", {
   status: varchar("status", { length: 20 }).default("active").notNull(), // 'active' | 'eliminated' | 'withdrawn'
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
-});
+}, (table) => ({
+  contestIdx: index("teams_contest_id_idx").on(table.contestId),
+  trackIdx: index("teams_track_id_idx").on(table.trackId),
+}));
 
 // Submissions Table
 export const submissions = pgTable("submissions", {
@@ -231,6 +239,7 @@ export const scores = pgTable("scores", {
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
   uniqueJudgeSubmission: unique().on(table.submissionId, table.judgeId),
+  judgeIdx: index("scores_judge_id_idx").on(table.judgeId),
 }));
 
 // Certificate Templates Table
@@ -259,7 +268,9 @@ export const certificateTemplates = pgTable("certificate_templates", {
   createdBy: uuid("created_by").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
-});
+}, (table) => ({
+  contestIdx: index("certificate_templates_contest_id_idx").on(table.contestId),
+}));
 
 // ================================================================
 // Milestone 3/4 tables
@@ -276,7 +287,9 @@ export const announcements = pgTable("announcements", {
   publishedAt: timestamp("published_at", { mode: "date" }).defaultNow(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
-});
+}, (table) => ({
+  contestIdx: index("announcements_contest_id_idx").on(table.contestId),
+}));
 
 // In-app notifications (fed by the dispatch layer; email sent out-of-band)
 export const notifications = pgTable("notifications", {
@@ -289,7 +302,10 @@ export const notifications = pgTable("notifications", {
   actionUrl: varchar("action_url", { length: 500 }),
   readAt: timestamp("read_at", { mode: "date" }),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("notifications_user_created_idx").on(table.userId, table.createdAt),
+  contestIdx: index("notifications_contest_id_idx").on(table.contestId),
+}));
 
 // Uploaded media (pitch videos, images, logos, banners). Stored in S3 (or mock local disk in dev).
 export const mediaAssets = pgTable("media_assets", {
@@ -304,7 +320,10 @@ export const mediaAssets = pgTable("media_assets", {
   mimeType: varchar("mime_type", { length: 128 }),
   sizeBytes: integer("size_bytes"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
-});
+}, (table) => ({
+  ownerIdx: index("media_assets_owner_idx").on(table.ownerUserId),
+  contestIdx: index("media_assets_contest_id_idx").on(table.contestId),
+}));
 
 // Team pitches — participants advertise themselves to team leaders
 export const teamPitches = pgTable("team_pitches", {
@@ -336,7 +355,10 @@ export const teamInvitations = pgTable("team_invitations", {
   message: text("message"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
-});
+}, (table) => ({
+  teamIdx: index("team_invitations_team_id_idx").on(table.teamId),
+  inviteeIdx: index("team_invitations_invitee_idx").on(table.inviteeUserId),
+}));
 
 // ================================================================
 // Ideathon tables (0009)
@@ -360,7 +382,9 @@ export const problemStatements = pgTable("problem_statements", {
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
-});
+}, (table) => ({
+  contestIdx: index("problem_statements_contest_id_idx").on(table.contestId),
+}));
 
 // Jury go/no-go decision for a team at a gate stage (phaseConfig[].gate)
 export const stageDecisions = pgTable("stage_decisions", {
@@ -374,6 +398,7 @@ export const stageDecisions = pgTable("stage_decisions", {
   decidedAt: timestamp("decided_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
   uniqueTeamPhase: unique().on(table.teamId, table.phase),
+  contestIdx: index("stage_decisions_contest_id_idx").on(table.contestId),
 }));
 
 // Validated before/after impact metrics with finance valuation
@@ -416,7 +441,10 @@ export const impactMetrics = pgTable("impact_metrics", {
   sortOrder: integer("sort_order").default(0).notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow(),
-});
+}, (table) => ({
+  contestIdx: index("impact_metrics_contest_id_idx").on(table.contestId),
+  teamIdx: index("impact_metrics_team_id_idx").on(table.teamId),
+}));
 
 // Auth.js Tables
 export const accounts = pgTable("accounts", {
@@ -432,14 +460,18 @@ export const accounts = pgTable("accounts", {
   scope: text("scope"),
   id_token: text("id_token"),
   session_state: text("session_state"),
-});
+}, (table) => ({
+  userIdx: index("accounts_user_id_idx").on(table.userId),
+}));
 
 export const sessions = pgTable("sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
   sessionToken: text("session_token").notNull().unique(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   expires: timestamp("expires", { mode: "date" }).notNull(),
-});
+}, (table) => ({
+  userIdx: index("sessions_user_id_idx").on(table.userId),
+}));
 
 export const verificationTokens = pgTable("verification_tokens", {
   identifier: text("identifier").notNull(),
@@ -459,7 +491,9 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
   usedAt: timestamp("used_at", { mode: "date" }),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
+}));
 
 // Relations
 export const contestsRelations = relations(contests, ({ one, many }) => ({
