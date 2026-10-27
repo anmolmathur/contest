@@ -58,4 +58,4 @@ export const PasswordInput = React.forwardRef<
   );
 });
 
-PasswordInput.displayName = "PasswordInput";
+PasswordInput.displayName = "PasswordInput"; // gitleaks:allow — component name, not a secret

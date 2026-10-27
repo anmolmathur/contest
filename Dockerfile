@@ -21,8 +21,9 @@ RUN npm config set fetch-retry-mintimeout 20000 && \
 
 # Install dependencies with retry logic.
 # `--legacy-peer-deps` is needed because next-auth@5 beta declares a peer
-# on nodemailer@7 which npm's strict resolver doesn't like when we also
-# add it as a direct dependency for the notifications engine.
+# on nodemailer ^7 || ^8, but we pin nodemailer@10 (security fixes) for the
+# notifications engine. next-auth's Email provider (the only peer user) is
+# not configured, so the mismatch is harmless.
 RUN npm ci --legacy-peer-deps || npm ci --legacy-peer-deps || npm ci --legacy-peer-deps
 
 # Rebuild the source code only when needed
@@ -49,6 +50,14 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Patch OS packages (e.g. openssl) past what the pinned base image shipped, and
+# drop npm/yarn/corepack — the server runs `node server.js` and never needs
+# them, and their bundled deps (tar, sigstore, pacote, ...) show up in scans.
+RUN apk upgrade --no-cache && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
