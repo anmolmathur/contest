@@ -74,6 +74,46 @@ function isMock(): boolean {
   return !process.env.AWS_S3_BUCKET || process.env.UPLOAD_DRIVER === "mock";
 }
 
+export function isS3Mode(): boolean {
+  return !isMock();
+}
+
+/** Key prefix inside the bucket (default "uploads/"). */
+function s3Prefix(): string {
+  const p = process.env.AWS_S3_PREFIX ?? "uploads/";
+  return p === "" || p.endsWith("/") ? p : `${p}/`;
+}
+
+let s3Client: import("@aws-sdk/client-s3").S3Client | null = null;
+async function getS3(): Promise<import("@aws-sdk/client-s3").S3Client> {
+  if (!s3Client) {
+    const { S3Client } = await import("@aws-sdk/client-s3");
+    // Credentials come from the default provider chain (AWS_ACCESS_KEY_ID /
+    // AWS_SECRET_ACCESS_KEY env, or an instance/task role).
+    s3Client = new S3Client({ region: process.env.AWS_S3_REGION ?? "us-east-1" });
+  }
+  return s3Client;
+}
+
+/**
+ * Short-lived signed GET URL for a stored file. `flatKey` is the key as it
+ * appears in the app URL (/uploads/<flatKey>); the bucket stays private.
+ */
+export async function signedGetUrl(
+  flatKey: string,
+  opts: { contentType: string; disposition: string },
+): Promise<string> {
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+  const cmd = new GetObjectCommand({
+    Bucket: process.env.AWS_S3_BUCKET!,
+    Key: `${s3Prefix()}${flatKey}`,
+    ResponseContentType: opts.contentType,
+    ResponseContentDisposition: opts.disposition,
+  });
+  return getSignedUrl(await getS3(), cmd, { expiresIn: 900 });
+}
+
 function keyFor(input: PresignInput): string {
   const ext = input.filename.includes(".") ? input.filename.split(".").pop() : "bin";
   const rand = crypto.randomBytes(8).toString("hex");
@@ -99,27 +139,27 @@ export async function presignUpload(input: PresignInput): Promise<PresignResult>
     };
   }
 
-  const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
   const bucket = process.env.AWS_S3_BUCKET!;
-  const region = process.env.AWS_S3_REGION ?? "us-east-1";
-  const client = new S3Client({ region });
-  const command = new PutObjectCommand({
-    Bucket: bucket,
-    Key: objectKey,
-    ContentType: input.mimeType,
-  });
-  const uploadUrl = await getSignedUrl(client, command, { expiresIn: 300 });
-  const cdnBase = process.env.AWS_S3_PUBLIC_URL ??
-    `https://${bucket}.s3.${region}.amazonaws.com`;
+  const cdnBase = process.env.AWS_S3_PUBLIC_URL;
+
+  // Private bucket (default): files are served through the app at
+  // /uploads/<flatKey>, which redirects to a short-lived signed URL. The URL
+  // stored in submissions therefore never expires and never exposes the bucket.
+  // With AWS_S3_PUBLIC_URL (e.g. CloudFront) set, files are public at that base.
+  const flatKey = objectKey.replace(/\//g, "_");
+  const key = cdnBase ? objectKey : `${s3Prefix()}${flatKey}`;
+  const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: input.mimeType });
+  const uploadUrl = await getSignedUrl(await getS3(), command, { expiresIn: 300 });
 
   return {
     uploadUrl,
     method: "PUT",
     headers: { "content-type": input.mimeType },
-    publicUrl: `${cdnBase}/${objectKey}`,
+    publicUrl: cdnBase ? `${cdnBase}/${objectKey}` : `/uploads/${flatKey}`,
     bucket,
-    objectKey,
+    objectKey: key,
     driver: "s3",
   };
 }
