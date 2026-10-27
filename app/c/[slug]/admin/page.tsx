@@ -89,7 +89,7 @@ import { FaqEditor } from "@/components/admin/FaqEditor";
 import { CustomDomainCard } from "@/components/admin/CustomDomainCard";
 import { ResultsPublishCard } from "@/components/admin/ResultsPublishCard";
 import { PromoteTeamsCard } from "@/components/admin/PromoteTeamsCard";
-import { OrganizationLogoCard } from "@/components/admin/OrganizationLogoCard";
+import { LogoOrderCard, OrganizationLogoCard } from "@/components/admin/OrganizationLogoCard";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1656,6 +1656,14 @@ export default function ContestAdminPage() {
                   setSuccess(l ? "Organisation logo saved." : "Organisation logo removed.");
                   router.refresh();
                 }}
+                onError={(msg) => { setSuccess(""); setError(msg); }}
+              />
+              <LogoOrderCard
+                slug={slug}
+                order={contest.logoOrder}
+                parent={contest.parentLogo}
+                org={contest.orgLogo}
+                onChange={() => { setError(""); setSuccess("Logo order saved."); router.refresh(); }}
                 onError={(msg) => { setSuccess(""); setError(msg); }}
               />
 

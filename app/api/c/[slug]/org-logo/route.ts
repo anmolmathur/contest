@@ -52,6 +52,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug
   return NextResponse.json({ logo: resolveLogo({ [LOGO_KEY[slot]]: logo }, slot) });
 }
 
+/** PATCH { order: "parent-first" | "org-first" } -> { order } */
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const a = await authorise(slug);
+  if (a.error) return a.error;
+  const body = (await req.json().catch(() => ({}))) as { order?: unknown };
+  if (body.order !== "parent-first" && body.order !== "org-first") {
+    return NextResponse.json({ error: "order must be parent-first or org-first" }, { status: 400 });
+  }
+  const next = { ...((a.contest.brandingConfig as Record<string, unknown> | null) ?? {}), logoOrder: body.order };
+  await db.update(contests).set({ brandingConfig: next, updatedAt: new Date() }).where(eq(contests.id, a.contest.id));
+  return NextResponse.json({ order: body.order });
+}
+
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const a = await authorise(slug);

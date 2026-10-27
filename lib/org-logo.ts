@@ -29,5 +29,26 @@ export function resolveLogo(branding: unknown, slot: LogoSlot): OrgLogo | null {
   };
 }
 
+/** Display order of the two logos (brandingConfig.logoOrder). Default: parent first. */
+export type LogoOrder = "parent-first" | "org-first";
+
+export function resolveLogoOrder(branding: unknown): LogoOrder {
+  const v = (branding as Record<string, unknown> | null | undefined)?.logoOrder;
+  return v === "org-first" ? "org-first" : "parent-first";
+}
+
+/** The logos that are set, in display order. */
+export function orderedLogos(
+  parent: OrgLogo | null | undefined,
+  org: OrgLogo | null | undefined,
+  order: LogoOrder | undefined,
+): Array<{ slot: LogoSlot; logo: OrgLogo }> {
+  const list: Array<{ slot: LogoSlot; logo: OrgLogo | null | undefined }> =
+    order === "org-first"
+      ? [{ slot: "org", logo: org }, { slot: "parent", logo: parent }]
+      : [{ slot: "parent", logo: parent }, { slot: "org", logo: org }];
+  return list.filter((x): x is { slot: LogoSlot; logo: OrgLogo } => !!x.logo);
+}
+
 export const resolveOrgLogo = (branding: unknown) => resolveLogo(branding, "org");
 export const resolveParentLogo = (branding: unknown) => resolveLogo(branding, "parent");

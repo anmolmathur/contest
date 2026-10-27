@@ -8,7 +8,7 @@ import { AssistantWidget } from "@/components/AssistantWidget";
 import { ContestNav, HideOnLiveScreens, HideOnStage } from "@/components/public/ContestChrome";
 import { isContestType, resolveSettings } from "@/lib/contest-config";
 import { resolveWordmark } from "@/lib/wordmark";
-import { resolveOrgLogo, resolveParentLogo } from "@/lib/org-logo";
+import { resolveLogoOrder, resolveOrgLogo, resolveParentLogo } from "@/lib/org-logo";
 import type { Metadata } from "next";
 
 // Import the Contest type for casting jsonb fields
@@ -113,6 +113,7 @@ export default async function ContestLayout({
     wordmark: resolveWordmark(contest.brandingConfig),
     orgLogo: resolveOrgLogo(contest.brandingConfig),
     parentLogo: resolveParentLogo(contest.brandingConfig),
+    logoOrder: resolveLogoOrder(contest.brandingConfig),
     tracks: contest.tracks.map((t) => ({
       id: t.id,
       name: t.name,
@@ -143,6 +144,7 @@ export default async function ContestLayout({
         wordmark={serializedContest.wordmark}
         orgLogo={serializedContest.orgLogo}
         parentLogo={serializedContest.parentLogo}
+        logoOrder={serializedContest.logoOrder}
       />
       {settings.demoBanner && (
         <HideOnStage>

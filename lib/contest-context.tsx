@@ -18,7 +18,7 @@ import {
 import { resolveSubmissionFields } from "@/lib/submission-fields";
 import { getPreset, type ContestAward, type LandingCopy } from "@/lib/contest-types";
 import type { WordmarkSegment } from "@/lib/wordmark";
-import type { OrgLogo } from "@/lib/org-logo";
+import type { LogoOrder, OrgLogo } from "@/lib/org-logo";
 
 export interface ContestTrack {
   id: string;
@@ -106,6 +106,8 @@ export interface Contest {
   orgLogo: OrgLogo | null;
   /** Parent company / brand logo (brandingConfig.parentLogo). */
   parentLogo: OrgLogo | null;
+  /** Which logo is shown first (brandingConfig.logoOrder). */
+  logoOrder: LogoOrder;
 }
 
 interface ContestContextType {

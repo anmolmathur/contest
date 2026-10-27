@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { uploadFile } from "@/lib/uploads/client";
-import { isLogoUrl, type LogoSlot, type OrgLogo } from "@/lib/org-logo";
+import { isLogoUrl, orderedLogos, type LogoOrder, type LogoSlot, type OrgLogo } from "@/lib/org-logo";
 import { SectionCard, inputCls } from "./editor-ui";
 
 /**
@@ -91,7 +91,7 @@ export function OrganizationLogoCard({
       title={parent ? "Parent Company Logo" : "Organisation Logo"}
       description={
         parent
-          ? "Logo of the parent company or brand behind this contest, e.g. TeamLease or Digivarsity. Shown first in the top bar and on the landing page."
+          ? "Logo of the parent company or brand behind this contest, e.g. TeamLease or Digivarsity. Shown in the top bar and on the landing page; set the order in Logo Order below."
           : "Logo of the organisation, institution or university hosting this contest. Shown in the top bar and on the landing page."
       }
     >
@@ -149,6 +149,75 @@ export function OrganizationLogoCard({
           <p className="text-xs text-gray-500">Use a transparent PNG or SVG, max 5 MB. It is shown at about 28 px tall in the top bar.</p>
         </div>
       </div>
+    </SectionCard>
+  );
+}
+
+/**
+ * Choose which logo comes first (left-most) in the contest nav and hero.
+ * Saves immediately; a preview shows the current order.
+ */
+export function LogoOrderCard({
+  slug,
+  order,
+  parent,
+  org,
+  onChange,
+  onError,
+}: {
+  slug: string;
+  order: LogoOrder;
+  parent: OrgLogo | null;
+  org: OrgLogo | null;
+  onChange: (order: LogoOrder) => void;
+  onError: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const set = async (next: LogoOrder) => {
+    if (next === order || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/c/${slug}/org-logo`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ order: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not save the logo order");
+      onChange(next);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not save the logo order");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const shown = orderedLogos(parent, org, order);
+  const opts: Array<{ value: LogoOrder; label: string }> = [
+    { value: "parent-first", label: "Parent company first" },
+    { value: "org-first", label: "Organisation first" },
+  ];
+  return (
+    <SectionCard title="Logo Order" description="Which logo appears first (left-most) in the contest header and on the landing page.">
+      <div className="flex flex-wrap items-center gap-2">
+        {opts.map((o) => (
+          <Button
+            key={o.value}
+            type="button"
+            size="sm"
+            variant={order === o.value ? "default" : "outline"}
+            disabled={busy}
+            onClick={() => set(o.value)}
+          >
+            {o.label}
+          </Button>
+        ))}
+        {busy && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+      </div>
+      <p className="mt-3 text-xs text-gray-400">
+        {shown.length
+          ? `Currently shown: ${shown.map((x) => (x.slot === "parent" ? "Parent company" : "Organisation")).join(" → ")}`
+          : "Upload a logo above to see the order take effect."}
+      </p>
     </SectionCard>
   );
 }

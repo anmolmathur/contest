@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Wordmark } from "@/components/Wordmark";
 import type { WordmarkSegment } from "@/lib/wordmark";
-import type { OrgLogo } from "@/lib/org-logo";
+import { orderedLogos, type LogoOrder, type OrgLogo } from "@/lib/org-logo";
 
 /** Routes that render full-bleed with no nav / banner / assistant (projector). */
 export function isChromelessPath(pathname: string | null): boolean {
@@ -43,6 +43,7 @@ interface NavProps {
   wordmark?: WordmarkSegment[] | null;
   orgLogo?: OrgLogo | null;
   parentLogo?: OrgLogo | null;
+  logoOrder?: LogoOrder;
 }
 
 /**
@@ -60,6 +61,7 @@ export function ContestNav({
   wordmark,
   orgLogo,
   parentLogo,
+  logoOrder,
 }: NavProps) {
   const pathname = usePathname() ?? "";
   if (isChromelessPath(pathname)) return null;
@@ -83,12 +85,10 @@ export function ContestNav({
       className="relative z-40 w-full border-b border-white/10 bg-[#07070c]/90 backdrop-blur-md"
     >
       <div className="mx-auto flex h-10 max-w-7xl items-center gap-3 px-4">
-        {[parentLogo, orgLogo].map((l, i) =>
-          l ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={i} src={l.url} alt={l.name || (i === 0 ? "Parent company logo" : "Organisation logo")} className="h-7 max-w-[7rem] shrink-0 object-contain" />
-          ) : null,
-        )}
+        {orderedLogos(parentLogo, orgLogo, logoOrder).map(({ slot, logo: l }) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={slot} src={l.url} alt={l.name || (slot === "parent" ? "Parent company logo" : "Organisation logo")} className="h-7 max-w-[7rem] shrink-0 object-contain" />
+        ))}
         <Link
           href={base}
           className="hidden max-w-[14rem] shrink-0 truncate text-xs font-semibold text-white/80 hover:text-white sm:block"

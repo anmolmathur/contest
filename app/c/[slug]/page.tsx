@@ -14,6 +14,7 @@ import { Wordmark } from "@/components/Wordmark";
 import { ValueMeter } from "@/components/ideathon/ValueMeter";
 import { AwardsGrid } from "@/components/ideathon/AwardsGrid";
 import { getImageUrl } from "@/lib/imageHelper";
+import { orderedLogos } from "@/lib/org-logo";
 import { CalendarDays, ChevronRight, MapPin, Sparkles, Trophy } from "lucide-react";
 import {
   KindBadge,
@@ -119,17 +120,15 @@ export default function ContestPage() {
               transition={{ duration: 0.6 }}
               className="mb-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-4"
             >
-              {[contest.parentLogo, contest.orgLogo].map((l, i) =>
-                l ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={i}
-                    src={l.url}
-                    alt={l.name || (i === 0 ? "Parent company logo" : "Organisation logo")}
-                    className="max-h-16 max-w-[14rem] object-contain drop-shadow-lg sm:max-h-20"
-                  />
-                ) : null,
-              )}
+              {orderedLogos(contest.parentLogo, contest.orgLogo, contest.logoOrder).map(({ slot, logo: l }) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={slot}
+                  src={l.url}
+                  alt={l.name || (slot === "parent" ? "Parent company logo" : "Organisation logo")}
+                  className="max-h-16 max-w-[14rem] object-contain drop-shadow-lg sm:max-h-20"
+                />
+              ))}
             </motion.div>
           )}
           <motion.h1
