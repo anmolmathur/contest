@@ -88,6 +88,7 @@ import { AgendaEditor } from "@/components/admin/AgendaEditor";
 import { FaqEditor } from "@/components/admin/FaqEditor";
 import { CustomDomainCard } from "@/components/admin/CustomDomainCard";
 import { ResultsPublishCard } from "@/components/admin/ResultsPublishCard";
+import { PromoteTeamsCard } from "@/components/admin/PromoteTeamsCard";
 import { OrganizationLogoCard } from "@/components/admin/OrganizationLogoCard";
 
 // ---------------------------------------------------------------------------
@@ -1125,6 +1126,12 @@ export default function ContestAdminPage() {
               }}
               onError={(msg) => { setSuccess(""); setError(msg); }}
             />
+            <PromoteTeamsCard
+              slug={slug}
+              teamTerm={t("team")}
+              trackTerm={t("track")}
+              onError={(msg) => { setSuccess(""); setError(msg); }}
+            />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               <GlassCard className="p-6">
                 <div className="flex items-center gap-4 mb-4">
@@ -1627,13 +1634,6 @@ export default function ContestAdminPage() {
                 </div>
               </GlassCard>
 
-              <ContestDetailsFields
-                value={extForm}
-                onChange={patchExt}
-                ctaPlaceholder={getPreset(extForm.contestType).heroCtaText}
-                rulesPlaceholders={getPreset(extForm.contestType).rules}
-              />
-
               <OrganizationLogoCard
                 slot="parent"
                 slug={slug}
@@ -1657,6 +1657,13 @@ export default function ContestAdminPage() {
                   router.refresh();
                 }}
                 onError={(msg) => { setSuccess(""); setError(msg); }}
+              />
+
+              <ContestDetailsFields
+                value={extForm}
+                onChange={patchExt}
+                ctaPlaceholder={getPreset(extForm.contestType).heroCtaText}
+                rulesPlaceholders={getPreset(extForm.contestType).rules}
               />
 
               {/* Rules */}
