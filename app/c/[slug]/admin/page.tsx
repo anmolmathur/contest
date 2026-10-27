@@ -88,6 +88,7 @@ import { AgendaEditor } from "@/components/admin/AgendaEditor";
 import { FaqEditor } from "@/components/admin/FaqEditor";
 import { CustomDomainCard } from "@/components/admin/CustomDomainCard";
 import { ResultsPublishCard } from "@/components/admin/ResultsPublishCard";
+import { OrganizationLogoCard } from "@/components/admin/OrganizationLogoCard";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1631,6 +1632,31 @@ export default function ContestAdminPage() {
                 onChange={patchExt}
                 ctaPlaceholder={getPreset(extForm.contestType).heroCtaText}
                 rulesPlaceholders={getPreset(extForm.contestType).rules}
+              />
+
+              <OrganizationLogoCard
+                slot="parent"
+                slug={slug}
+                contestId={contest.id}
+                logo={contest.parentLogo}
+                onChange={(l) => {
+                  setError("");
+                  setSuccess(l ? "Parent company logo saved." : "Parent company logo removed.");
+                  router.refresh();
+                }}
+                onError={(msg) => { setSuccess(""); setError(msg); }}
+              />
+              <OrganizationLogoCard
+                slot="org"
+                slug={slug}
+                contestId={contest.id}
+                logo={contest.orgLogo}
+                onChange={(l) => {
+                  setError("");
+                  setSuccess(l ? "Organisation logo saved." : "Organisation logo removed.");
+                  router.refresh();
+                }}
+                onError={(msg) => { setSuccess(""); setError(msg); }}
               />
 
               {/* Rules */}

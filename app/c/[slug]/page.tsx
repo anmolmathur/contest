@@ -112,6 +112,26 @@ export default function ContestPage() {
         </div>
 
         <div className="relative z-10 text-center px-4 w-full max-w-6xl">
+          {(contest.parentLogo || contest.orgLogo) && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="mb-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-4"
+            >
+              {[contest.parentLogo, contest.orgLogo].map((l, i) =>
+                l ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={i}
+                    src={l.url}
+                    alt={l.name || (i === 0 ? "Parent company logo" : "Organisation logo")}
+                    className="max-h-16 max-w-[14rem] object-contain drop-shadow-lg sm:max-h-20"
+                  />
+                ) : null,
+              )}
+            </motion.div>
+          )}
           <motion.h1
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}

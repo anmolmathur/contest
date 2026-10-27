@@ -18,6 +18,7 @@ import {
 import { resolveSubmissionFields } from "@/lib/submission-fields";
 import { getPreset, type ContestAward, type LandingCopy } from "@/lib/contest-types";
 import type { WordmarkSegment } from "@/lib/wordmark";
+import type { OrgLogo } from "@/lib/org-logo";
 
 export interface ContestTrack {
   id: string;
@@ -101,6 +102,10 @@ export interface Contest {
   customDomain: string | null;
   awards: ContestAward[] | null;
   wordmark: WordmarkSegment[] | null;
+  /** Host organisation / institution logo (brandingConfig.orgLogo). */
+  orgLogo: OrgLogo | null;
+  /** Parent company / brand logo (brandingConfig.parentLogo). */
+  parentLogo: OrgLogo | null;
 }
 
 interface ContestContextType {
