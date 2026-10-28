@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dispatchTeamJoined } from "@/lib/notifications/dispatch";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, users, contestUsers, tracks } from "@/lib/db/schema";
@@ -161,6 +162,13 @@ export async function POST(
       .update(users)
       .set({ teamId: newTeam.id })
       .where(eq(users.id, session.user.id));
+
+    dispatchTeamJoined({
+      contestId: contest.id,
+      userId: session.user.id,
+      teamName: newTeam.name,
+      created: true,
+    }).catch(() => {});
 
     return NextResponse.json(
       { message: "Team created successfully", team: newTeam },

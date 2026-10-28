@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teamInvitations, teams, contestUsers, users } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { resolveContest } from "@/lib/contest-auth";
+import { resolveContest, canAdminContest } from "@/lib/contest-auth";
+import { dispatchTeamJoined } from "@/lib/notifications/dispatch";
 import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
 
 /**
@@ -13,7 +14,8 @@ import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
  * already be on a team, mentors can't join as participants, and the team's
  * size (participants only) and per-role caps (contest.roleConfig) apply.
  * All checks run BEFORE the invitation is marked accepted, so a rejected
- * accept leaves the invitation pending.
+ * accept leaves the invitation pending. After the registration deadline,
+ * only contest admins can accept; decline and cancel stay open.
  */
 export async function PATCH(
   req: NextRequest,
@@ -61,6 +63,16 @@ export async function PATCH(
   }
 
   if (action === "accept") {
+    if (
+      contest.registrationDeadline && new Date() > new Date(contest.registrationDeadline) &&
+      !(await canAdminContest(session.user.id, contest.id, session.user.email ?? undefined))
+    ) {
+      return NextResponse.json(
+        { error: "Registration deadline has passed. Teams can no longer take new members." },
+        { status: 403 }
+      );
+    }
+
     // The joiner is always the invitee (invite: the invited user; request: the requester).
     const joinerUserId = inv.inviteeUserId;
     const existingCu = await db.query.contestUsers.findFirst({
@@ -109,6 +121,13 @@ export async function PATCH(
 
     // Keep users.teamId in sync for backward compat (same as add-member).
     await db.update(users).set({ teamId: inv.teamId }).where(eq(users.id, joinerUserId));
+
+    dispatchTeamJoined({
+      contestId: contest.id,
+      userId: joinerUserId,
+      teamName: team.name,
+      created: false,
+    }).catch(() => {});
   }
 
   await db

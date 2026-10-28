@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, teamInvitations, contestUsers, users } from "@/lib/db/schema";
 import { eq, and, or } from "drizzle-orm";
-import { resolveContest } from "@/lib/contest-auth";
+import { resolveContest, canAdminContest } from "@/lib/contest-auth";
 import { dispatchTeamInvite } from "@/lib/notifications/dispatch";
 import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
 
@@ -71,6 +71,17 @@ export async function POST(
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
   if (team.contestId !== contest.id)
     return NextResponse.json({ error: "Team not in this contest" }, { status: 403 });
+
+  // No new invitations or join requests once registration has closed.
+  if (
+    contest.registrationDeadline && new Date() > new Date(contest.registrationDeadline) &&
+    !(await canAdminContest(session.user.id, contest.id, session.user.email ?? undefined))
+  ) {
+    return NextResponse.json(
+      { error: "Registration deadline has passed. Teams can no longer take new members." },
+      { status: 403 }
+    );
+  }
 
   if (direction === "invite" && team.leaderId !== session.user.id) {
     return NextResponse.json({ error: "Only the team leader can invite" }, { status: 403 });

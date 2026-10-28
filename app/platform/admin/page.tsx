@@ -259,10 +259,9 @@ export default function PlatformAdminPage() {
     setTouchedLimits((t) => new Set(t).add(key));
   };
 
-  // Contests eligible to clone from (any active or completed contest in the platform).
-  const cloneableContests = contests.filter(
-    (c) => c.status === "active" || c.status === "completed" || c.status === "archived",
-  );
+  // Any contest can be a clone source — including drafts, so a template
+  // contest set up but never launched can seed per-university copies.
+  const cloneableContests = contests;
 
   /**
    * Push a domain change against /api/platform/contests/[slug]/domain.

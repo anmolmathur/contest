@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { contestUsers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest } from "@/lib/contest-auth";
+import { dispatchRegistrationConfirmed } from "@/lib/notifications/dispatch";
 
 // POST /api/c/[slug]/users/enroll - Self-enroll into an active contest as participant
 export async function POST(
@@ -61,6 +62,8 @@ export async function POST(
         role: "participant",
       })
       .returning();
+
+    dispatchRegistrationConfirmed({ contestId: contest.id, userId: session.user.id }).catch(() => {});
 
     return NextResponse.json(newContestUser, { status: 201 });
   } catch (error) {

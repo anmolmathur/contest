@@ -7,11 +7,12 @@
  *
  * There are a few convenience helpers for the most common events:
  * `dispatchAnnouncement`, `dispatchTeamInvite`, `dispatchPhaseStarted`,
- * `dispatchScoresPublished`.
+ * `dispatchScoresPublished`, `dispatchRegistrationConfirmed`, `dispatchTeamJoined`.
  */
 
 import { db } from "@/lib/db";
 import { contestUrl } from "@/lib/urls";
+import { contestTerm } from "@/lib/api-input";
 import {
   notifications,
   users,
@@ -26,10 +27,14 @@ import {
   teamInviteTemplate,
   phaseStartedTemplate,
   scoresPublishedTemplate,
+  registrationConfirmedTemplate,
+  teamJoinedTemplate,
   type AnnouncementCtx,
   type TeamInviteCtx,
   type PhaseStartedCtx,
   type ScoresPublishedCtx,
+  type RegistrationConfirmedCtx,
+  type TeamJoinedCtx,
 } from "./templates";
 
 export type NotificationType =
@@ -38,7 +43,9 @@ export type NotificationType =
   | "team_approved"
   | "phase_started"
   | "submission_received"
-  | "scores_published";
+  | "scores_published"
+  | "registration_confirmed"
+  | "team_joined";
 
 type NotificationInput = {
   userId: string;
@@ -88,6 +95,7 @@ async function resolveContestCtx(contestId: string) {
     name: contest.name,
     supportEmail: contest.supportEmail ?? null,
     actionUrl: contestUrl(contest, "/dashboard"),
+    teamWord: contestTerm(contest, "team"),
   };
 }
 
@@ -241,4 +249,76 @@ export async function dispatchScoresPublished(args: {
       }
     }),
   );
+}
+
+/** Confirmation to a participant who has just enrolled in a contest. */
+export async function dispatchRegistrationConfirmed(args: { contestId: string; userId: string }) {
+  const ctx = await resolveContestCtx(args.contestId);
+  if (!ctx) return;
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, args.userId) });
+  if (!user) return;
+
+  await notify({
+    userId: user.id,
+    contestId: args.contestId,
+    type: "registration_confirmed",
+    title: `You're registered for ${ctx.name}`,
+    actionUrl: ctx.actionUrl,
+  });
+
+  if (shouldEmail(user.notificationPrefs as Record<string, unknown> | null, "registration_confirmed")) {
+    const tpl = registrationConfirmedTemplate({
+      recipientName: user.name,
+      contestName: ctx.name,
+      actionUrl: ctx.actionUrl,
+      supportEmail: ctx.supportEmail,
+      teamWord: ctx.teamWord,
+    } satisfies RegistrationConfirmedCtx);
+    await sendMail({ to: user.email, ...tpl }).catch((e) =>
+      console.warn("[notify] registration email failed for", user.email, e),
+    );
+  }
+}
+
+/**
+ * Confirmation to a user who has just created a team (`created: true`) or
+ * joined one via add-member / an accepted invitation or request.
+ */
+export async function dispatchTeamJoined(args: {
+  contestId: string;
+  userId: string;
+  teamName: string;
+  created: boolean;
+}) {
+  const ctx = await resolveContestCtx(args.contestId);
+  if (!ctx) return;
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, args.userId) });
+  if (!user) return;
+
+  await notify({
+    userId: user.id,
+    contestId: args.contestId,
+    type: "team_joined",
+    title: args.created
+      ? `${ctx.teamWord} "${args.teamName}" created`
+      : `You've joined "${args.teamName}"`,
+    actionUrl: ctx.actionUrl,
+  });
+
+  if (shouldEmail(user.notificationPrefs as Record<string, unknown> | null, "team_joined")) {
+    const tpl = teamJoinedTemplate({
+      recipientName: user.name,
+      contestName: ctx.name,
+      actionUrl: ctx.actionUrl,
+      supportEmail: ctx.supportEmail,
+      teamName: args.teamName,
+      teamWord: ctx.teamWord,
+      created: args.created,
+    } satisfies TeamJoinedCtx);
+    await sendMail({ to: user.email, ...tpl }).catch((e) =>
+      console.warn("[notify] team email failed for", user.email, e),
+    );
+  }
 }

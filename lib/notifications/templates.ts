@@ -109,6 +109,45 @@ export function scoresPublishedTemplate(ctx: ScoresPublishedCtx) {
   };
 }
 
+export type RegistrationConfirmedCtx = BaseCtx & { teamWord: string };
+export function registrationConfirmedTemplate(ctx: RegistrationConfirmedCtx) {
+  const team = ctx.teamWord.toLowerCase();
+  return {
+    subject: `You're registered for ${ctx.contestName}`,
+    html: wrap(
+      "Registration confirmed",
+      `<p>Hi ${escapeHtml(ctx.recipientName ?? "there")},</p>
+       <p>You're now registered for <b>${escapeHtml(ctx.contestName)}</b>.</p>
+       <p>Next step: create a ${escapeHtml(team)} or accept an invitation to join one from your dashboard.</p>`,
+      ctx
+    ),
+    text:
+      `You're now registered for ${ctx.contestName}.\n\n` +
+      `Next step: create a ${team} or accept an invitation to join one.\n${ctx.actionUrl ?? ""}`,
+  };
+}
+
+export type TeamJoinedCtx = BaseCtx & { teamName: string; teamWord: string; created: boolean };
+export function teamJoinedTemplate(ctx: TeamJoinedCtx) {
+  const team = ctx.teamWord.toLowerCase();
+  const line = ctx.created
+    ? `Your ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> has been created in ${escapeHtml(ctx.contestName)}. You are its leader and can now invite members.`
+    : `You've joined the ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> in ${escapeHtml(ctx.contestName)}.`;
+  return {
+    subject: ctx.created
+      ? `[${ctx.contestName}] ${ctx.teamWord} "${ctx.teamName}" created`
+      : `[${ctx.contestName}] You've joined "${ctx.teamName}"`,
+    html: wrap(
+      ctx.created ? `${ctx.teamWord} registered` : `You've joined a ${team}`,
+      `<p>Hi ${escapeHtml(ctx.recipientName ?? "there")},</p><p>${line}</p>`,
+      ctx
+    ),
+    text: ctx.created
+      ? `Your ${team} "${ctx.teamName}" has been created in ${ctx.contestName}. You are its leader.\n${ctx.actionUrl ?? ""}`
+      : `You've joined the ${team} "${ctx.teamName}" in ${ctx.contestName}.\n${ctx.actionUrl ?? ""}`,
+  };
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

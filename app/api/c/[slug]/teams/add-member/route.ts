@@ -5,6 +5,7 @@ import { teams, users, contestUsers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
 import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
+import { dispatchTeamJoined } from "@/lib/notifications/dispatch";
 
 export async function POST(
   req: NextRequest,
@@ -49,6 +50,14 @@ export async function POST(
     if (!isCreator && !isAdmin) {
       return NextResponse.json(
         { error: "Only team creator or admin can add members" },
+        { status: 403 }
+      );
+    }
+
+    // Team rosters lock at the registration deadline; organisers can still edit.
+    if (!isAdmin && contest.registrationDeadline && new Date() > new Date(contest.registrationDeadline)) {
+      return NextResponse.json(
+        { error: "Registration deadline has passed. Team members can no longer be added." },
         { status: 403 }
       );
     }
@@ -105,6 +114,8 @@ export async function POST(
       .update(users)
       .set({ teamId })
       .where(eq(users.id, userId));
+
+    dispatchTeamJoined({ contestId: contest.id, userId, teamName: team.name, created: false }).catch(() => {});
 
     return NextResponse.json(
       { message: "Member added successfully" },
