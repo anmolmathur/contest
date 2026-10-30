@@ -5,7 +5,9 @@ import { teams, users, contestUsers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
 import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
-import { dispatchTeamJoined } from "@/lib/notifications/dispatch";
+import { dispatchMembersAdded, dispatchTeamJoined } from "@/lib/notifications/dispatch";
+import { addMember, MemberConflictError, memberError, parseMembers } from "@/lib/team-members";
+import { contestTerm } from "@/lib/api-input";
 
 export async function POST(
   req: NextRequest,
@@ -26,10 +28,11 @@ export async function POST(
 
     const body = await req.json();
     const { userId, teamId } = body;
+    const byEmail = body.email !== undefined;
 
-    if (!userId || !teamId) {
+    if ((!userId && !byEmail) || !teamId) {
       return NextResponse.json(
-        { error: "Missing required fields: userId and teamId" },
+        { error: "Missing required fields: teamId and userId or email" },
         { status: 400 }
       );
     }
@@ -60,6 +63,40 @@ export async function POST(
         { error: "Registration deadline has passed. Team members can no longer be added." },
         { status: 403 }
       );
+    }
+
+    if (byEmail) {
+      const { members, error: inputError } = parseMembers([{ email: body.email, name: body.name }]);
+      if (inputError) {
+        return NextResponse.json({ error: inputError }, { status: 400 });
+      }
+      const member = members[0];
+      const problem = await memberError(contest.id, member, contestTerm(contest, "team"));
+      if (problem) {
+        return NextResponse.json({ error: problem }, { status: 400 });
+      }
+      const slotError = await checkTeamSlot({
+        contest,
+        teamId,
+        userId: "",
+        participantRole: null,
+        mode: "join",
+      });
+      if (slotError) {
+        return NextResponse.json({ error: slotError }, { status: 400 });
+      }
+
+      const result = await db.transaction((tx) =>
+        addMember(tx, { contestId: contest.id, teamId, member })
+      );
+      dispatchMembersAdded({
+        contest,
+        teamName: team.name,
+        addedByName: session.user.name,
+        added: [{ email: member.email, ...result }],
+      }).catch((e) => console.error("Team member notification error:", e));
+
+      return NextResponse.json({ message: "Member added successfully" }, { status: 200 });
     }
 
     // Check if user to be added is assigned to this contest
@@ -122,6 +159,9 @@ export async function POST(
       { status: 200 }
     );
   } catch (error) {
+    if (error instanceof MemberConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error("Add member error:", error);
     return NextResponse.json(
       { error: "Internal server error" },

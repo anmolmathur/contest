@@ -1,4 +1,4 @@
-import NextAuth, { DefaultSession } from "next-auth";
+import NextAuth, { CredentialsSignin, DefaultSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import type { Provider } from "next-auth/providers";
@@ -13,6 +13,15 @@ async function findUserByEmail(email: string) {
   return db.query.users.findFirst({
     where: sql`lower(${users.email}) = ${email.trim().toLowerCase()}`,
   });
+}
+
+/** `code` reaches the login page, which tells the user what to do next. */
+class NoAccountError extends CredentialsSignin {
+  code = "no_account";
+}
+
+class NoPasswordError extends CredentialsSignin {
+  code = "no_password";
 }
 
 /** Google SSO is on when both env vars are set (AUTH_GOOGLE_ID/SECRET or GOOGLE_CLIENT_ID/SECRET). */
@@ -132,8 +141,13 @@ providers.push(
 
         const user = await findUserByEmail(credentials.email as string);
 
-        if (!user || !user.password) {
-          return null;
+        if (!user) {
+          throw new NoAccountError();
+        }
+
+        // Google-only accounts and teammates who haven't set a password yet.
+        if (!user.password) {
+          throw new NoPasswordError();
         }
 
         const isPasswordValid = await bcrypt.compare(

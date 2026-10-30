@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dispatchTeamJoined } from "@/lib/notifications/dispatch";
+import { dispatchMembersAdded, dispatchTeamJoined } from "@/lib/notifications/dispatch";
+import { addMember, MemberConflictError, memberError, parseMembers } from "@/lib/team-members";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, users, contestUsers, tracks } from "@/lib/db/schema";
@@ -10,7 +11,10 @@ import { contestTerm } from "@/lib/api-input";
 
 /**
  * POST /api/c/[slug]/teams/create
- * Body: { name: string, trackId?: string }
+ * Body: { name: string, trackId?: string, members?: { email: string, name?: string }[] }
+ *
+ * `members` are the creator's teammates: known emails are reused, new ones get
+ * an account (`name` required) and a set-password email. Everyone is emailed.
  *
  * `trackId` is required when the contest has tracks/categories and optional
  * when it has none. With `settings.exclusiveTracks` each track can be picked
@@ -137,31 +141,67 @@ export async function POST(
       );
     }
 
-    // Create team (creator is also the initial leader)
-    const [newTeam] = await db
-      .insert(teams)
-      .values({
-        name,
-        contestId: contest.id,
-        trackId: track?.id ?? null,
-        createdBy: session.user.id,
-        leaderId: session.user.id,
-      })
-      .returning();
-
-    // Update the contest_users record for this user with the teamId
-    if (contestUser) {
-      await db
-        .update(contestUsers)
-        .set({ teamId: newTeam.id })
-        .where(eq(contestUsers.id, contestUser.id));
+    // Teammates named by email (the creator takes one of the team's seats).
+    const { members, error: membersError } = parseMembers(body?.members);
+    if (membersError) {
+      return NextResponse.json({ error: membersError }, { status: 400 });
+    }
+    const creatorEmail = session.user.email?.trim().toLowerCase();
+    if (members.some((m) => m.email === creatorEmail)) {
+      return NextResponse.json(
+        { error: "You are already on this team. Add only your teammates." },
+        { status: 400 }
+      );
+    }
+    if (members.length + 1 > contest.maxTeamMembers) {
+      return NextResponse.json(
+        { error: `A team can have at most ${contest.maxTeamMembers} members including you` },
+        { status: 400 }
+      );
+    }
+    const teamWord = contestTerm(contest, "team");
+    for (const member of members) {
+      const memberProblem = await memberError(contest.id, member, teamWord);
+      if (memberProblem) {
+        return NextResponse.json({ error: memberProblem }, { status: 400 });
+      }
     }
 
-    // Also update users.teamId for backward compat
-    await db
-      .update(users)
-      .set({ teamId: newTeam.id })
-      .where(eq(users.id, session.user.id));
+    // Team and members land together, so one bad teammate leaves nothing behind.
+    const { newTeam, added } = await db.transaction(async (tx) => {
+      // Create team (creator is also the initial leader)
+      const [newTeam] = await tx
+        .insert(teams)
+        .values({
+          name,
+          contestId: contest.id,
+          trackId: track?.id ?? null,
+          createdBy: session.user.id,
+          leaderId: session.user.id,
+        })
+        .returning();
+
+      // Update the contest_users record for this user with the teamId
+      if (contestUser) {
+        await tx
+          .update(contestUsers)
+          .set({ teamId: newTeam.id })
+          .where(eq(contestUsers.id, contestUser.id));
+      }
+
+      // Also update users.teamId for backward compat
+      await tx
+        .update(users)
+        .set({ teamId: newTeam.id })
+        .where(eq(users.id, session.user.id));
+
+      const added = [];
+      for (const member of members) {
+        const result = await addMember(tx, { contestId: contest.id, teamId: newTeam.id, member });
+        added.push({ email: member.email, ...result });
+      }
+      return { newTeam, added };
+    });
 
     dispatchTeamJoined({
       contestId: contest.id,
@@ -170,11 +210,21 @@ export async function POST(
       created: true,
     }).catch(() => {});
 
+    dispatchMembersAdded({
+      contest,
+      teamName: newTeam.name,
+      addedByName: session.user.name,
+      added,
+    }).catch((e) => console.error("Team member notification error:", e));
+
     return NextResponse.json(
       { message: "Team created successfully", team: newTeam },
       { status: 201 }
     );
   } catch (error: unknown) {
+    if (error instanceof MemberConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error("Team creation error:", error);
     if ((error as { code?: string } | null)?.code === "23505") {
       return NextResponse.json(

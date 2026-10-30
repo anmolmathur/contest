@@ -16,6 +16,7 @@ import { SubmissionView } from "@/components/submissions/SubmissionView";
 import { submissionValues, validateSubmission } from "@/lib/submission-fields";
 import type { SubmissionValues } from "@/lib/contest-config";
 import Leaderboard from "@/components/Leaderboard";
+import MemberEmailRow, { type MemberRow } from "@/components/team/MemberEmailRow";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +62,11 @@ import {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+const EMPTY_MEMBER: MemberRow = { email: "", name: "" };
+
+/** Rows carry a stable id, so removing one doesn't hand its lookup result to the next. */
+const firstMemberRow = () => [{ ...EMPTY_MEMBER, id: 0 }];
 
 interface Team {
   id: string;
@@ -186,13 +192,14 @@ export default function ContestDashboardPage() {
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [editTeamOpen, setEditTeamOpen] = useState(false);
 
-  // Available users for add-member
-  const [availableUsers, setAvailableUsers] = useState<TeamMember[]>([]);
+  // Add-member form
+  const [newMember, setNewMember] = useState<MemberRow>(EMPTY_MEMBER);
 
   // Create team form
   const [teamName, setTeamName] = useState("");
   const [selectedTrackId, setSelectedTrackId] = useState("");
   const [createRole, setCreateRole] = useState("");
+  const [memberRows, setMemberRows] = useState(firstMemberRow);
 
   // Edit profile form
   const [profileForm, setProfileForm] = useState({ name: "", department: "" });
@@ -448,18 +455,6 @@ export default function ContestDashboardPage() {
     [apiBase]
   );
 
-  const loadAvailableUsers = useCallback(async () => {
-    try {
-      const res = await fetch(`${apiBase}/teams/available-users`);
-      if (res.ok) {
-        const data = await res.json();
-        setAvailableUsers(data.users || []);
-      }
-    } catch (err) {
-      console.error("Error loading available users:", err);
-    }
-  }, [apiBase]);
-
   // -----------------------------------------------------------------------
   // Master data loader
   // -----------------------------------------------------------------------
@@ -550,6 +545,9 @@ export default function ContestDashboardPage() {
         body: JSON.stringify({
           name: teamName.trim(),
           trackId: hasTracks ? selectedTrackId : undefined,
+          members: memberRows
+            .filter((m) => m.email.trim())
+            .map(({ email, name }) => ({ email, name })),
         }),
       });
 
@@ -569,6 +567,7 @@ export default function ContestDashboardPage() {
       setTeamName("");
       setSelectedTrackId("");
       setCreateRole("");
+      setMemberRows(firstMemberRow());
 
       // Reload everything
       await loadDashboardData();
@@ -577,7 +576,7 @@ export default function ContestDashboardPage() {
     }
   };
 
-  const handleAddMember = async (userId: string) => {
+  const handleAddMember = async () => {
     setError("");
     setSuccess("");
 
@@ -585,7 +584,7 @@ export default function ContestDashboardPage() {
       const res = await fetch(`${apiBase}/teams/add-member`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, teamId: team?.id }),
+        body: JSON.stringify({ ...newMember, teamId: team?.id }),
       });
 
       const data = await res.json();
@@ -595,9 +594,10 @@ export default function ContestDashboardPage() {
       }
 
       setSuccess("Member added successfully!");
+      setAddMemberOpen(false);
+      setNewMember(EMPTY_MEMBER);
       if (team) {
         await loadTeamData(team.id);
-        await loadAvailableUsers();
       }
     } catch {
       setError("Failed to add member");
@@ -1172,7 +1172,7 @@ export default function ContestDashboardPage() {
                               Create Team
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="bg-[#0a0a0a] border-white/10">
+                          <DialogContent className="bg-[#0a0a0a] border-white/10 max-h-[85vh] overflow-y-auto">
                             <DialogHeader>
                               <DialogTitle className="text-2xl font-bold text-white">
                                 Create New {t("team")}
@@ -1268,6 +1268,54 @@ export default function ContestDashboardPage() {
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                </div>
+                              )}
+                              {contest.maxTeamMembers > 1 && (
+                                <div className="space-y-3">
+                                  <div>
+                                    <Label className="text-gray-200">Teammates</Label>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      Add up to {contest.maxTeamMembers - 1} by email. Each one
+                                      is notified automatically.
+                                    </p>
+                                  </div>
+                                  {memberRows.map((row) => (
+                                    <MemberEmailRow
+                                      key={row.id}
+                                      apiBase={apiBase}
+                                      teamWord={t("team")}
+                                      value={row}
+                                      onChange={(next) =>
+                                        setMemberRows((rows) =>
+                                          rows.map((r) => (r.id === row.id ? { ...next, id: r.id } : r))
+                                        )
+                                      }
+                                      onRemove={
+                                        memberRows.length > 1
+                                          ? () =>
+                                              setMemberRows((rows) =>
+                                                rows.filter((r) => r.id !== row.id)
+                                              )
+                                          : undefined
+                                      }
+                                    />
+                                  ))}
+                                  {memberRows.length < contest.maxTeamMembers - 1 && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      onClick={() =>
+                                        setMemberRows((rows) => [
+                                          ...rows,
+                                          { ...EMPTY_MEMBER, id: Math.max(...rows.map((r) => r.id)) + 1 },
+                                        ])
+                                      }
+                                      className="w-full bg-transparent border-white/10 text-white hover:bg-white/10 hover:text-white"
+                                    >
+                                      <Plus className="mr-2" size={16} />
+                                      Add another teammate
+                                    </Button>
+                                  )}
                                 </div>
                               )}
                               <Button
@@ -1454,7 +1502,6 @@ export default function ContestDashboardPage() {
                     <Button
                       onClick={() => {
                         setAddMemberOpen(true);
-                        loadAvailableUsers();
                       }}
                       variant="outline"
                       className="border-white/20 text-white bg-white/10 hover:bg-white/20"
@@ -1485,49 +1532,23 @@ export default function ContestDashboardPage() {
                   Add Team Member
                 </DialogTitle>
                 <p className="text-sm text-gray-400 mt-2">
-                  Select a user to add to your team
+                  Enter your teammate&apos;s email. They&apos;ll be notified automatically.
                 </p>
               </DialogHeader>
-              <div className="mt-4">
-                {availableUsers.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-gray-400">No available users to add</p>
-                    <p className="text-sm text-gray-500 mt-2">
-                      All users are either already in teams or there are no
-                      registered participants
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {availableUsers.map((user) => (
-                      <div
-                        key={user.id}
-                        className="bg-white/5 border border-white/10 rounded-lg p-4 flex items-center justify-between hover:bg-white/10 transition-colors"
-                      >
-                        <div>
-                          <p className="text-white font-semibold">
-                            {user.name}
-                          </p>
-                          <p className="text-sm text-gray-400">
-                            {user.participantRole || user.role}
-                          </p>
-                          <p className="text-xs text-gray-500">{user.email}</p>
-                          {user.department && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              Department: {user.department}
-                            </p>
-                          )}
-                        </div>
-                        <Button
-                          onClick={() => handleAddMember(user.id)}
-                          className="bg-gradient-to-r from-neon-purple to-electric-blue"
-                        >
-                          Add
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="mt-4 space-y-4">
+                <MemberEmailRow
+                  apiBase={apiBase}
+                  teamWord={t("team")}
+                  value={newMember}
+                  onChange={setNewMember}
+                />
+                <Button
+                  onClick={handleAddMember}
+                  disabled={!newMember.email.trim()}
+                  className="w-full bg-gradient-to-r from-neon-purple to-electric-blue"
+                >
+                  Add
+                </Button>
               </div>
             </DialogContent>
           </Dialog>

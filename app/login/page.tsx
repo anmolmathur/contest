@@ -25,6 +25,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [needsRegistration, setNeedsRegistration] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -37,6 +38,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setNeedsRegistration(false);
     setLoading(true);
 
     try {
@@ -46,7 +48,12 @@ export default function LoginPage() {
         redirect: false,
       });
 
-      if (result?.error) {
+      if (result?.code === "no_account") {
+        setError("No account found for this email. Please register first.");
+        setNeedsRegistration(true);
+      } else if (result?.code === "no_password") {
+        setError("This account has no password yet. Use \"Forgot password\" to set one, or sign in with Google.");
+      } else if (result?.error) {
         setError("Invalid email or password");
       } else {
         // Redirect to callbackUrl if user was trying to access a protected page
@@ -152,6 +159,14 @@ export default function LoginPage() {
                 className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg p-3"
               >
                 {error}
+                {needsRegistration && (
+                  <>
+                    {" "}
+                    <Link href="/register" className="underline font-semibold">
+                      Register
+                    </Link>
+                  </>
+                )}
               </motion.div>
             )}
 

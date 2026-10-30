@@ -23,6 +23,8 @@ import { and, desc, eq, gt, isNull } from "drizzle-orm";
 
 export const TOKEN_TTL_MINUTES = 60;
 export const RESEND_COOLDOWN_SECONDS = 60;
+/** Teammates added by email may not open their inbox for days. */
+export const INVITE_TOKEN_TTL_MINUTES = 7 * 24 * 60;
 
 /** Generate a fresh raw token (to email) and its SHA-256 hash (to store). */
 export function generateResetToken(): { raw: string; hash: string } {
@@ -44,6 +46,7 @@ export function hashResetToken(raw: string): string {
  */
 export async function issueResetTokenForEmail(
   emailLower: string,
+  ttlMinutes: number = TOKEN_TTL_MINUTES,
 ): Promise<{ raw: string; userId: string; userName: string | null; userEmail: string } | null> {
   const user = await db.query.users.findFirst({
     where: eq(users.email, emailLower),
@@ -64,7 +67,7 @@ export async function issueResetTokenForEmail(
   if (recent) return null;
 
   const { raw, hash } = generateResetToken();
-  const expiresAt = new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000);
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
   await db.insert(passwordResetTokens).values({
     userId: user.id,
     tokenHash: hash,

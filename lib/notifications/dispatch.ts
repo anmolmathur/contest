@@ -11,8 +11,9 @@
  */
 
 import { db } from "@/lib/db";
-import { contestUrl } from "@/lib/urls";
+import { contestBaseUrl, contestUrl } from "@/lib/urls";
 import { contestTerm } from "@/lib/api-input";
+import { INVITE_TOKEN_TTL_MINUTES, issueResetTokenForEmail } from "@/lib/auth/password-reset";
 import {
   notifications,
   users,
@@ -290,6 +291,8 @@ export async function dispatchTeamJoined(args: {
   userId: string;
   teamName: string;
   created: boolean;
+  addedByName?: string | null;
+  setPasswordUrl?: string;
 }) {
   const ctx = await resolveContestCtx(args.contestId);
   if (!ctx) return;
@@ -316,9 +319,39 @@ export async function dispatchTeamJoined(args: {
       teamName: args.teamName,
       teamWord: ctx.teamWord,
       created: args.created,
+      addedByName: args.addedByName,
+      setPasswordUrl: args.setPasswordUrl,
     } satisfies TeamJoinedCtx);
     await sendMail({ to: user.email, ...tpl }).catch((e) =>
       console.warn("[notify] team email failed for", user.email, e),
     );
   }
+}
+
+/**
+ * Tell each teammate they were added by email. Brand-new accounts have no
+ * password, so theirs carries a single-use link to set one.
+ */
+export async function dispatchMembersAdded(args: {
+  contest: { id: string; slug: string; customDomain?: string | null; customDomainVerifiedAt?: Date | string | null };
+  teamName: string;
+  addedByName?: string | null;
+  added: { email: string; userId: string; created: boolean }[];
+}) {
+  const origin = new URL(contestBaseUrl(args.contest).base).origin;
+  await Promise.all(
+    args.added.map(async (member) => {
+      const issued = member.created
+        ? await issueResetTokenForEmail(member.email, INVITE_TOKEN_TTL_MINUTES)
+        : null;
+      await dispatchTeamJoined({
+        contestId: args.contest.id,
+        userId: member.userId,
+        teamName: args.teamName,
+        created: false,
+        addedByName: args.addedByName,
+        setPasswordUrl: issued ? `${origin}/reset-password?token=${encodeURIComponent(issued.raw)}` : undefined,
+      });
+    }),
+  );
 }

@@ -127,24 +127,40 @@ export function registrationConfirmedTemplate(ctx: RegistrationConfirmedCtx) {
   };
 }
 
-export type TeamJoinedCtx = BaseCtx & { teamName: string; teamWord: string; created: boolean };
+export type TeamJoinedCtx = BaseCtx & {
+  teamName: string;
+  teamWord: string;
+  created: boolean;
+  /** Set when a teammate put this person on the team. */
+  addedByName?: string | null;
+  /** Set for a brand-new account, which has no password yet. */
+  setPasswordUrl?: string;
+};
 export function teamJoinedTemplate(ctx: TeamJoinedCtx) {
   const team = ctx.teamWord.toLowerCase();
   const line = ctx.created
     ? `Your ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> has been created in ${escapeHtml(ctx.contestName)}. You are its leader and can now invite members.`
-    : `You've joined the ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> in ${escapeHtml(ctx.contestName)}.`;
+    : ctx.addedByName
+      ? `${escapeHtml(ctx.addedByName)} added you to the ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> in ${escapeHtml(ctx.contestName)}.`
+      : `You've joined the ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> in ${escapeHtml(ctx.contestName)}.`;
+  const addedLine = ctx.addedByName
+    ? `${ctx.addedByName} added you to the ${team} "${ctx.teamName}" in ${ctx.contestName}.`
+    : `You've joined the ${team} "${ctx.teamName}" in ${ctx.contestName}.`;
+  const setPassword = ctx.setPasswordUrl
+    ? `<p>An account has been created for you. <a href="${escapeHtml(ctx.setPasswordUrl)}">Set your password</a> to sign in. This link works for 7 days; after that, use "Forgot password" on the sign-in page.</p>`
+    : "";
   return {
     subject: ctx.created
       ? `[${ctx.contestName}] ${ctx.teamWord} "${ctx.teamName}" created`
       : `[${ctx.contestName}] You've joined "${ctx.teamName}"`,
     html: wrap(
       ctx.created ? `${ctx.teamWord} registered` : `You've joined a ${team}`,
-      `<p>Hi ${escapeHtml(ctx.recipientName ?? "there")},</p><p>${line}</p>`,
+      `<p>Hi ${escapeHtml(ctx.recipientName ?? "there")},</p><p>${line}</p>${setPassword}`,
       ctx
     ),
     text: ctx.created
       ? `Your ${team} "${ctx.teamName}" has been created in ${ctx.contestName}. You are its leader.\n${ctx.actionUrl ?? ""}`
-      : `You've joined the ${team} "${ctx.teamName}" in ${ctx.contestName}.\n${ctx.actionUrl ?? ""}`,
+      : `${addedLine}\n${ctx.setPasswordUrl ? `Set your password (link works for 7 days): ${ctx.setPasswordUrl}\n` : ""}${ctx.actionUrl ?? ""}`,
   };
 }
 
