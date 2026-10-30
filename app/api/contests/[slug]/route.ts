@@ -2,9 +2,10 @@ import { isContestType } from "@/lib/contest-config";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { contests, tracks, contestUsers } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { contests, tracks, contestUsers, teams, submissions, users, certificateTemplates } from "@/lib/db/schema";
+import { eq, inArray } from "drizzle-orm";
 import { canAdminContest, isPlatformAdmin } from "@/lib/contest-auth";
+import { invalidateHostCache } from "@/lib/tenant-resolver";
 
 // GET /api/contests/[slug] - Get a contest by slug (public)
 export async function GET(
@@ -145,7 +146,46 @@ export async function DELETE(
       return NextResponse.json({ error: "Contest not found" }, { status: 404 });
     }
 
-    await db.delete(contests).where(eq(contests.id, contest.id));
+    // Only contests that have not started can be deleted.
+    if (contest.status !== "draft") {
+      return NextResponse.json({ error: "Only draft contests can be deleted" }, { status: 409 });
+    }
+    if (contest.isDefault) {
+      return NextResponse.json({ error: "The default contest cannot be deleted" }, { status: 409 });
+    }
+
+    // A draft can hold test teams, but submissions mean real work: it may be a
+    // live contest that was moved back to draft.
+    const [submission] = await db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .innerJoin(teams, eq(submissions.teamId, teams.id))
+      .where(eq(teams.contestId, contest.id))
+      .limit(1);
+    if (submission) {
+      return NextResponse.json(
+        { error: "This contest has submissions and cannot be deleted" },
+        { status: 409 }
+      );
+    }
+
+    await db.transaction(async (tx) => {
+      // teams and certificate_templates don't cascade from contests; everything
+      // else does. Uploaded files stay in storage: clones share their URLs.
+      const contestTeams = await tx
+        .select({ id: teams.id })
+        .from(teams)
+        .where(eq(teams.contestId, contest.id));
+      const teamIds = contestTeams.map((t) => t.id);
+      if (teamIds.length > 0) {
+        await tx.update(users).set({ teamId: null }).where(inArray(users.teamId, teamIds));
+        await tx.delete(teams).where(inArray(teams.id, teamIds));
+      }
+      await tx.delete(certificateTemplates).where(eq(certificateTemplates.contestId, contest.id));
+      await tx.delete(contests).where(eq(contests.id, contest.id));
+    });
+
+    invalidateHostCache(contest.customDomain ?? null);
 
     return NextResponse.json({ success: true });
   } catch (error) {

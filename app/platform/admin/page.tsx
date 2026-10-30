@@ -419,8 +419,12 @@ export default function PlatformAdminPage() {
     }
   };
 
-  const handleDeleteContest = async (contestSlug: string) => {
-    if (!confirm("Are you sure you want to delete this contest? This will remove all associated data."))
+  const handleDeleteContest = async (contestSlug: string, contestName: string) => {
+    if (
+      !confirm(
+        `Permanently delete the draft contest "${contestName}"?\n\nIts tracks, members, teams, certificate templates and other settings will be removed. This cannot be undone.`,
+      )
+    )
       return;
     setError("");
     setSuccess("");
@@ -956,9 +960,12 @@ export default function PlatformAdminPage() {
                               <Button onClick={() => openEditContest(c)} variant="ghost" size="sm" className="text-amber-400 hover:bg-amber-500/10" title="Quick edit">
                                 <Edit size={16} />
                               </Button>
-                              <Button onClick={() => handleDeleteContest(c.slug)} variant="ghost" size="sm" className="text-red-400 hover:bg-red-500/10" title="Delete">
-                                <Trash2 size={16} />
-                              </Button>
+                              {/* Only contests that have not started can be deleted. */}
+                              {c.status === "draft" && (
+                                <Button onClick={() => handleDeleteContest(c.slug, c.name)} variant="ghost" size="sm" className="text-red-400 hover:bg-red-500/10" title="Delete draft contest">
+                                  <Trash2 size={16} />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
