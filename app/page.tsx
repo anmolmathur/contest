@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import GlowButton from "@/components/GlowButton";
 import { getPreset } from "@/lib/contest-types";
+import { term, termPlural, type Terminology } from "@/lib/contest-config";
 
 interface ContestSummary {
   id: string;
@@ -16,6 +17,8 @@ interface ContestSummary {
   description: string | null;
   status: string;
   contestType?: string | null;
+  terminology?: Terminology | null;
+  stats?: { teams: number; contestants: number; submissions: number } | null;
   heroTitle: string | null;
   heroSubtitle: string | null;
   bannerImageUrl: string | null;
@@ -38,6 +41,43 @@ function formatDate(dateStr: string | null): string {
     month: "short",
     year: "numeric",
   });
+}
+
+function ContestStats({ contest }: { contest: ContestSummary }) {
+  const { stats, terminology } = contest;
+  // Drafts have not opened yet, so a row of zeroes would say nothing.
+  if (!stats || contest.status === "draft") return null;
+
+  const items = [
+    {
+      value: stats.teams,
+      label: stats.teams === 1 ? term(terminology, "team") : termPlural(terminology, "team"),
+    },
+    { value: stats.contestants, label: stats.contestants === 1 ? "Contestant" : "Contestants" },
+    {
+      value: stats.submissions,
+      label:
+        stats.submissions === 1
+          ? term(terminology, "submission")
+          : termPlural(terminology, "submission"),
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-3 gap-2 mb-6">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="min-w-0 rounded-xl bg-white/5 border border-white/10 px-0.5 py-3 text-center"
+        >
+          <div className="text-2xl font-bold text-white tabular-nums">
+            {item.value.toLocaleString("en-IN")}
+          </div>
+          <div className="text-xs text-gray-400 mt-1 truncate">{item.label}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function HomePage() {
@@ -223,7 +263,7 @@ export default function HomePage() {
                         {!contest.description && <div className="flex-1" />}
 
                         {/* Dates */}
-                        <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+                        <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
                           <svg
                             className="w-4 h-4"
                             fill="none"
@@ -242,6 +282,8 @@ export default function HomePage() {
                             {formatDate(contest.endDate)}
                           </span>
                         </div>
+
+                        <ContestStats contest={contest} />
 
                         {/* View Contest Button */}
                         <Link href={`/c/${contest.slug}`} className="block">

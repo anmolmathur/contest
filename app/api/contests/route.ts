@@ -1,11 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { contests } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { contests, contestUsers, submissions, teams } from "@/lib/db/schema";
+import { and, count, eq, inArray, ne } from "drizzle-orm";
 import { isPlatformAdmin } from "@/lib/contest-auth";
 import { createContestFromPreset } from "@/lib/contest-create";
 import { resolveHostToSlug } from "@/lib/tenant-resolver";
+
+// Teams, contestants and submissions per contest, for the landing page cards.
+async function getContestStats(contestIds: string[]) {
+  const [teamRows, contestantRows, submissionRows] = await Promise.all([
+    db
+      .select({ contestId: teams.contestId, total: count() })
+      .from(teams)
+      .where(and(inArray(teams.contestId, contestIds), ne(teams.status, "withdrawn")))
+      .groupBy(teams.contestId),
+    db
+      .select({ contestId: contestUsers.contestId, total: count() })
+      .from(contestUsers)
+      .where(and(inArray(contestUsers.contestId, contestIds), eq(contestUsers.role, "participant")))
+      .groupBy(contestUsers.contestId),
+    db
+      .select({ contestId: teams.contestId, total: count() })
+      .from(submissions)
+      .innerJoin(teams, eq(submissions.teamId, teams.id))
+      .where(and(inArray(teams.contestId, contestIds), ne(teams.status, "withdrawn")))
+      .groupBy(teams.contestId),
+  ]);
+
+  const totals = (rows: { contestId: string | null; total: number }[]) =>
+    new Map(rows.map((r) => [r.contestId, r.total]));
+  const teamTotals = totals(teamRows);
+  const contestantTotals = totals(contestantRows);
+  const submissionTotals = totals(submissionRows);
+
+  return new Map(
+    contestIds.map((id) => [
+      id,
+      {
+        teams: teamTotals.get(id) ?? 0,
+        contestants: contestantTotals.get(id) ?? 0,
+        submissions: submissionTotals.get(id) ?? 0,
+      },
+    ])
+  );
+}
 
 // GET /api/contests - List all contests (public)
 // On a custom contest domain only that contest is listed, so a third party
@@ -22,6 +61,7 @@ export async function GET(req: NextRequest) {
         description: true,
         status: true,
         contestType: true,
+        terminology: true,
         visibility: true,
         heroTitle: true,
         heroSubtitle: true,
@@ -38,7 +78,11 @@ export async function GET(req: NextRequest) {
       orderBy: (contests, { desc }) => [desc(contests.createdAt)],
     });
 
-    return NextResponse.json(allContests);
+    // This list is public, so stats are only attached to public contests.
+    const publicIds = allContests.filter((c) => c.visibility === "public").map((c) => c.id);
+    const stats = publicIds.length > 0 ? await getContestStats(publicIds) : new Map();
+
+    return NextResponse.json(allContests.map((c) => ({ ...c, stats: stats.get(c.id) ?? null })));
   } catch (error) {
     console.error("Error fetching contests:", error);
     return NextResponse.json({ error: "Failed to fetch contests" }, { status: 500 });
