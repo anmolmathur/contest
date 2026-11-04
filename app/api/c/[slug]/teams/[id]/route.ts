@@ -6,6 +6,7 @@ import { eq, and, ne } from "drizzle-orm";
 import { resolveContest, canAdminContest } from "@/lib/contest-auth";
 import { resolveSettings } from "@/lib/contest-config";
 import { contestTerm } from "@/lib/api-input";
+import { allowsMultipleTeams, onTeam, reassignActiveTeam } from "@/lib/multi-team";
 
 // GET - Get team details with members
 export async function GET(
@@ -51,7 +52,7 @@ export async function GET(
       .innerJoin(users, eq(contestUsers.userId, users.id))
       .where(
         and(
-          eq(contestUsers.teamId, id),
+          onTeam(id),
           eq(contestUsers.contestId, contest.id),
         )
       );
@@ -249,6 +250,16 @@ export async function DELETE(
           { status: 400 }
         );
       }
+    }
+
+    // Multi-team (Ideathon): members whose active team this was move to
+    // another team they're on; team_members rows go with the team (cascade).
+    if (allowsMultipleTeams(contest)) {
+      await db.transaction(async (tx) => {
+        await reassignActiveTeam(tx, contest.id, id);
+        await tx.delete(teams).where(eq(teams.id, id));
+      });
+      return NextResponse.json({ message: "Team deleted successfully" });
     }
 
     // Clear team association from contest_users records

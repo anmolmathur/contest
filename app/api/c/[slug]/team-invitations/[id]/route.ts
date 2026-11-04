@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { allowsMultipleTeams, isOnTeam, recordMembership } from "@/lib/multi-team";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teamInvitations, teams, contestUsers, users } from "@/lib/db/schema";
@@ -82,9 +83,10 @@ export async function PATCH(
       ),
     });
 
-    if (existingCu?.teamId) {
+    const multiTeam = allowsMultipleTeams(contest);
+    if (multiTeam ? await isOnTeam(existingCu, inv.teamId) : existingCu?.teamId) {
       return NextResponse.json(
-        { error: "User already on a team; invitation was stale" },
+        { error: multiTeam ? "User is already on this team" : "User already on a team; invitation was stale" },
         { status: 409 }
       );
     }
@@ -108,7 +110,11 @@ export async function PATCH(
       return NextResponse.json({ error: slotError }, { status: 400 });
     }
 
-    if (existingCu) {
+    await recordMembership(db, contest, inv.teamId, joinerUserId);
+    if (multiTeam && existingCu?.teamId) {
+      // Multi-team: keep their current active team, record this one too.
+      await recordMembership(db, contest, existingCu.teamId, joinerUserId);
+    } else if (existingCu) {
       await db.update(contestUsers).set({ teamId: inv.teamId }).where(eq(contestUsers.id, existingCu.id));
     } else {
       await db.insert(contestUsers).values({
@@ -120,7 +126,9 @@ export async function PATCH(
     }
 
     // Keep users.teamId in sync for backward compat (same as add-member).
-    await db.update(users).set({ teamId: inv.teamId }).where(eq(users.id, joinerUserId));
+    if (!(multiTeam && existingCu?.teamId)) {
+      await db.update(users).set({ teamId: inv.teamId }).where(eq(users.id, joinerUserId));
+    }
 
     dispatchTeamJoined({
       contestId: contest.id,

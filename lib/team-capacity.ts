@@ -9,6 +9,7 @@
 import { db } from "@/lib/db";
 import { contestUsers } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
+import { onTeam } from "@/lib/multi-team";
 
 export interface RoleCap {
   role: string;
@@ -39,7 +40,7 @@ export function rolesOfMember(m: { participantRole?: string | null; extraRoles?:
 /** Participants (non-mentors) currently on a team in a contest. */
 export async function teamParticipants(contestId: string, teamId: string) {
   const rows = await db.query.contestUsers.findMany({
-    where: and(eq(contestUsers.teamId, teamId), eq(contestUsers.contestId, contestId)),
+    where: and(onTeam(teamId), eq(contestUsers.contestId, contestId)),
     columns: { id: true, userId: true, role: true, participantRole: true, extraRoles: true },
   });
   return rows.filter((r) => r.role !== "mentor" && r.role !== "validator");

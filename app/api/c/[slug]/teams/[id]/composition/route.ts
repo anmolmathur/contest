@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { getEffectiveContestRole, resolveContest } from "@/lib/contest-auth";
 import { compositionChecks } from "@/lib/team-composition";
 import { extraRolesOf } from "@/lib/team-capacity";
+import { isOnTeam, onTeam } from "@/lib/multi-team";
 
 /**
  * GET /api/c/[slug]/teams/[id]/composition
@@ -22,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
     if (!contest) return NextResponse.json({ error: "Contest not found" }, { status: 404 });
     const eff = await getEffectiveContestRole(session.user.id, contest.id);
     const staff = eff.access === "admin" || eff.access === "judge" || eff.access === "validator";
-    if (!staff && eff.teamId !== id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!staff && eff.teamId !== id && !(await isOnTeam({ userId: session.user.id, teamId: eff.teamId }, id))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const team = await db.query.teams.findFirst({ where: and(eq(teams.id, id), eq(teams.contestId, contest.id)) });
     if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
@@ -38,7 +39,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
       })
       .from(contestUsers)
       .innerJoin(users, eq(users.id, contestUsers.userId))
-      .where(and(eq(contestUsers.contestId, contest.id), eq(contestUsers.teamId, id)));
+      .where(and(eq(contestUsers.contestId, contest.id), onTeam(id)));
     const members = rows.filter((r) => r.role !== "mentor" && r.role !== "validator");
 
     const problem = team.problemId

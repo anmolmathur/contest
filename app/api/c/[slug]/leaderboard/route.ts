@@ -6,6 +6,7 @@ import { resolveContest } from "@/lib/contest-auth";
 import { teamPhaseScores, scorablePhases, type ScoringCriterion } from "@/lib/scoring";
 import { resolveScale } from "@/lib/contest-config";
 import { contestTerminology } from "@/lib/api-input";
+import { withFullRosters } from "@/lib/multi-team";
 
 /**
  * GET /api/c/[slug]/leaderboard  (public)
@@ -39,7 +40,7 @@ export async function GET(
     const scoringScale = resolveScale(contest.scoringScale);
 
     // Get only approved teams for this contest with their members and track
-    const approvedTeams = await db.query.teams.findMany({
+    const approvedTeams = await withFullRosters(contest, await db.query.teams.findMany({
       where: and(
         eq(teams.contestId, contest.id),
         eq(teams.approved, true)
@@ -65,7 +66,7 @@ export async function GET(
           },
         },
       },
-    });
+    }));
 
     // One query for every approved team's submissions + scores.
     const allSubmissions = approvedTeams.length

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { allowsMultipleTeams, isOnTeam } from "@/lib/multi-team";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, teamInvitations, contestUsers, users } from "@/lib/db/schema";
@@ -98,8 +99,11 @@ export async function POST(
       eq(contestUsers.userId, inviteeUserId),
     ),
   });
-  if (cu?.teamId) {
-    return NextResponse.json({ error: "User is already on a team in this contest" }, { status: 400 });
+  if (allowsMultipleTeams(contest) ? await isOnTeam(cu, teamId) : cu?.teamId) {
+    return NextResponse.json(
+      { error: allowsMultipleTeams(contest) ? "User is already on this team" : "User is already on a team in this contest" },
+      { status: 400 },
+    );
   }
   if (cu?.role === "mentor") {
     return NextResponse.json(

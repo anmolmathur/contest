@@ -6,9 +6,14 @@
  * `contest_users` holds one row per user per contest, so its `teamId` is what
  * guarantees "one team per contest"; `addMember` only claims a row whose
  * teamId is still null, which also covers two teams racing for one student.
+ *
+ * Multi-team contests (Ideathon, `multiTeam: true`) drop that rule: a person
+ * may join several teams. The join is recorded in `team_members` and only
+ * fills `contest_users.teamId` (their active team) when they have none yet.
+ * See lib/multi-team.ts.
  */
 import { db } from "@/lib/db";
-import { contestUsers, users } from "@/lib/db/schema";
+import { contestUsers, teamMembers, users } from "@/lib/db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { userTypeForEmail } from "@/lib/user-type";
 
@@ -51,8 +56,15 @@ export function parseMembers(raw: unknown): { members: MemberInput[]; error?: st
   return { members };
 }
 
+export type MultiTeamOpts = {
+  /** Contest lets one person be on several teams (Ideathon). */
+  multiTeam?: boolean;
+  /** Team being joined; with multiTeam, "in_team" means already on THIS team. */
+  teamId?: string | null;
+};
+
 /** Where `email` stands for this contest. */
-export async function memberStatus(contestId: string, email: string): Promise<MemberStatus> {
+export async function memberStatus(contestId: string, email: string, opts: MultiTeamOpts = {}): Promise<MemberStatus> {
   const user = await db.query.users.findFirst({
     where: sql`lower(${users.email}) = ${email}`,
     columns: { id: true, name: true },
@@ -63,7 +75,18 @@ export async function memberStatus(contestId: string, email: string): Promise<Me
     where: and(eq(contestUsers.contestId, contestId), eq(contestUsers.userId, user.id)),
     columns: { role: true, teamId: true },
   });
-  if (membership?.teamId) return { status: "in_team" };
+  if (membership?.teamId) {
+    if (!opts.multiTeam) return { status: "in_team" };
+    if (opts.teamId) {
+      const onThis =
+        membership.teamId === opts.teamId ||
+        !!(await db.query.teamMembers.findFirst({
+          where: and(eq(teamMembers.teamId, opts.teamId), eq(teamMembers.userId, user.id)),
+          columns: { id: true },
+        }));
+      if (onThis) return { status: "in_team" };
+    }
+  }
   if (membership && membership.role !== "participant") return { status: "not_participant" };
   return { status: "available", name: user.name };
 }
@@ -73,10 +96,15 @@ export async function memberError(
   contestId: string,
   member: MemberInput,
   teamWord: string,
+  opts: MultiTeamOpts = {},
 ): Promise<string | null> {
-  const { status } = await memberStatus(contestId, member.email);
+  const { status } = await memberStatus(contestId, member.email, opts);
   const team = teamWord.toLowerCase();
-  if (status === "in_team") return `${member.email} is already in a ${team} for this contest`;
+  if (status === "in_team") {
+    return opts.multiTeam
+      ? `${member.email} is already on this ${team}`
+      : `${member.email} is already in a ${team} for this contest`;
+  }
   if (status === "not_participant") return `${member.email} is not a participant in this contest`;
   if (status === "new" && !member.name) return `Please enter a name for ${member.email}`;
   return null;
@@ -88,9 +116,9 @@ export async function memberError(
  */
 export async function addMember(
   tx: Tx,
-  args: { contestId: string; teamId: string; member: MemberInput },
+  args: { contestId: string; teamId: string; member: MemberInput; multiTeam?: boolean },
 ): Promise<{ userId: string; created: boolean }> {
-  const { contestId, teamId, member } = args;
+  const { contestId, teamId, member, multiTeam } = args;
 
   const findUser = () =>
     tx.query.users.findFirst({
@@ -121,6 +149,30 @@ export async function addMember(
     .insert(contestUsers)
     .values({ contestId, userId: user.id, role: "participant" })
     .onConflictDoNothing();
+
+  if (multiTeam) {
+    const cu = await tx.query.contestUsers.findFirst({
+      where: and(eq(contestUsers.contestId, contestId), eq(contestUsers.userId, user.id)),
+      columns: { id: true, role: true, teamId: true },
+    });
+    if (!cu || cu.role !== "participant") {
+      throw new MemberConflictError(`${member.email} is not a participant in this contest`);
+    }
+    const [joined] = await tx
+      .insert(teamMembers)
+      .values({ contestId, teamId, userId: user.id })
+      .onConflictDoNothing()
+      .returning({ id: teamMembers.id });
+    if (!joined) throw new MemberConflictError(`${member.email} is already on this team`);
+    if (cu.teamId) {
+      // Keep their current active team on record too.
+      await tx.insert(teamMembers).values({ contestId, teamId: cu.teamId, userId: user.id }).onConflictDoNothing();
+    } else {
+      await tx.update(contestUsers).set({ teamId }).where(eq(contestUsers.id, cu.id));
+      await tx.update(users).set({ teamId }).where(eq(users.id, user.id));
+    }
+    return { userId: user.id, created };
+  }
 
   const claimed = await tx
     .update(contestUsers)

@@ -8,6 +8,7 @@ import { eq, and, count } from "drizzle-orm";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
 import { resolveSettings } from "@/lib/contest-config";
 import { contestTerm } from "@/lib/api-input";
+import { allowsMultipleTeams, recordMembership } from "@/lib/multi-team";
 
 /**
  * POST /api/c/[slug]/teams/create
@@ -133,8 +134,10 @@ export async function POST(
       );
     }
 
-    // Check if user already has a team in this contest (via contest_users.teamId)
-    if (contestUser?.teamId) {
+    // One team per person, except where the contest type allows several
+    // (Ideathon): then the new team simply becomes their active team.
+    const multiTeam = allowsMultipleTeams(contest);
+    if (contestUser?.teamId && !multiTeam) {
       return NextResponse.json(
         { error: "You are already in a team for this contest" },
         { status: 400 }
@@ -161,7 +164,7 @@ export async function POST(
     }
     const teamWord = contestTerm(contest, "team");
     for (const member of members) {
-      const memberProblem = await memberError(contest.id, member, teamWord);
+      const memberProblem = await memberError(contest.id, member, teamWord, { multiTeam });
       if (memberProblem) {
         return NextResponse.json({ error: memberProblem }, { status: 400 });
       }
@@ -181,12 +184,28 @@ export async function POST(
         })
         .returning();
 
-      // Update the contest_users record for this user with the teamId
+      // Put the creator on the team via contest_users. An admin with no
+      // contest_users row (e.g. a platform admin) gets one here: without it
+      // the admin panel listed them as leader while their own dashboard said
+      // "You are not part of any team yet".
       if (contestUser) {
         await tx
           .update(contestUsers)
           .set({ teamId: newTeam.id })
           .where(eq(contestUsers.id, contestUser.id));
+      } else {
+        await tx
+          .insert(contestUsers)
+          .values({ contestId: contest.id, userId: session.user.id, role: "participant", teamId: newTeam.id })
+          .onConflictDoUpdate({
+            target: [contestUsers.contestId, contestUsers.userId],
+            set: { teamId: newTeam.id },
+          });
+      }
+      if (multiTeam) {
+        // Keep the previous active team on record before switching away from it.
+        if (contestUser?.teamId) await recordMembership(tx, contest, contestUser.teamId, session.user.id);
+        await recordMembership(tx, contest, newTeam.id, session.user.id);
       }
 
       // Also update users.teamId for backward compat
@@ -197,7 +216,7 @@ export async function POST(
 
       const added = [];
       for (const member of members) {
-        const result = await addMember(tx, { contestId: contest.id, teamId: newTeam.id, member });
+        const result = await addMember(tx, { contestId: contest.id, teamId: newTeam.id, member, multiTeam });
         added.push({ email: member.email, ...result });
       }
       return { newTeam, added };

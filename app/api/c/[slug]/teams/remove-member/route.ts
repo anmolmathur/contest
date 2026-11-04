@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { teams, users, submissions, contestUsers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
+import { allowsMultipleTeams, isOnTeam, leaveTeam } from "@/lib/multi-team";
 
 export async function POST(
   req: NextRequest,
@@ -76,11 +77,18 @@ export async function POST(
 
     // Verify the user is actually in this team via contest_users
     const targetContestUser = await getContestUser(userId, contest.id);
-    if (!targetContestUser || targetContestUser.teamId !== teamId) {
+    if (!(await isOnTeam(targetContestUser, teamId)) || !targetContestUser) {
       return NextResponse.json(
         { error: "User is not a member of this team" },
         { status: 400 }
       );
+    }
+
+    // Multi-team (Ideathon): leave just this team; their active team moves
+    // to another team they're still on.
+    if (allowsMultipleTeams(contest)) {
+      await db.transaction((tx) => leaveTeam(tx, contest.id, teamId, userId));
+      return NextResponse.json({ message: "Member removed successfully" });
     }
 
     // Clear contest_users.teamId

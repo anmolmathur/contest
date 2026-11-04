@@ -6,6 +6,7 @@ import { eq, and, inArray, ne } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
 import { teamPhaseScores, type ScoringCriterion } from "@/lib/scoring";
 import { resolveScale } from "@/lib/contest-config";
+import { withFullRosters } from "@/lib/multi-team";
 
 interface Prize {
   rank: number;
@@ -49,7 +50,7 @@ export async function GET(
     const prizes = (contest.prizes as Prize[]) || [];
 
     // Get approved teams for THIS contest with contest-scoped members
-    const approvedTeams = await db.query.teams.findMany({
+    const approvedTeams = await withFullRosters(contest, await db.query.teams.findMany({
       where: and(
         eq(teams.contestId, contest.id),
         eq(teams.approved, true),
@@ -76,7 +77,7 @@ export async function GET(
           },
         },
       },
-    });
+    }));
 
     // One query for every approved team's submissions + scores.
     const allSubmissions = approvedTeams.length

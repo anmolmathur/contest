@@ -120,7 +120,14 @@ interface ContestMembership {
   id: string;
   role: string; // "admin" | "judge" | "participant" | "mentor"
   participantRole: string | null;
-  teamId: string | null;
+  teamId: string | null; // active team
+}
+
+/** A team I'm on (multi-team contests can have several). */
+interface MyTeamRef {
+  id: string;
+  name: string;
+  status?: string;
 }
 
 interface TeamFeedback {
@@ -165,6 +172,10 @@ export default function ContestDashboardPage() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamCount, setTeamCount] = useState(0);
   const [maxTeams, setMaxTeams] = useState(contest.maxTeams);
+  // Every team I'm on, and whether the contest allows more than one (Ideathon)
+  const [myTeams, setMyTeams] = useState<MyTeamRef[]>([]);
+  const [multiTeam, setMultiTeam] = useState(false);
+  const [switchingTeam, setSwitchingTeam] = useState(false);
   // Tracks/categories already claimed (only populated with settings.exclusiveTracks)
   const [takenTrackIds, setTakenTrackIds] = useState<string[]>([]);
 
@@ -276,6 +287,8 @@ export default function ContestDashboardPage() {
       if (res.ok) {
         const data = await res.json();
         setTakenTrackIds(Array.isArray(data.takenTrackIds) ? data.takenTrackIds : []);
+        setMyTeams(Array.isArray(data.teams) ? data.teams : []);
+        setMultiTeam(!!data.multiTeam);
         setContestMembership({
           id: data.id,
           role: data.role,
@@ -573,6 +586,32 @@ export default function ContestDashboardPage() {
       await loadDashboardData();
     } catch {
       setError("Failed to create team");
+    }
+  };
+
+  // Multi-team contests: choose which of my teams the dashboard works on.
+  const handleSwitchTeam = async (teamId: string) => {
+    if (!teamId || teamId === contestMembership?.teamId) return;
+    setError("");
+    setSwitchingTeam(true);
+    try {
+      const res = await fetch(`${apiBase}/users/me`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activeTeamId: teamId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Could not switch ${t("team").toLowerCase()}`);
+        return;
+      }
+      setSubmissions([]);
+      setTeamFeedback(null);
+      await fetchMembership();
+    } catch {
+      setError(`Could not switch ${t("team").toLowerCase()}`);
+    } finally {
+      setSwitchingTeam(false);
     }
   };
 
@@ -1150,10 +1189,28 @@ export default function ContestDashboardPage() {
             <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
               <div className="flex items-center gap-3">
                 <Users className="text-neon-purple" size={32} />
-                <h2 className="text-3xl font-bold text-white">Your Team</h2>
+                <h2 className="text-3xl font-bold text-white">
+                  {multiTeam && myTeams.length > 1 ? `Your ${tp("team")}` : `Your ${t("team")}`}
+                </h2>
+                {multiTeam && myTeams.length > 1 && (
+                  <select
+                    aria-label={`Switch ${t("team").toLowerCase()}`}
+                    value={contestMembership?.teamId ?? ""}
+                    disabled={switchingTeam}
+                    onChange={(e) => handleSwitchTeam(e.target.value)}
+                    className="h-9 rounded-md border border-white/20 bg-white/10 px-3 text-sm text-white"
+                  >
+                    {myTeams.map((mt) => (
+                      <option key={mt.id} value={mt.id} className="bg-[#0a0a0a]">
+                        {mt.name}
+                        {mt.status === "eliminated" ? " (out)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
-              {!team && (
+              {(!team || (multiTeam && isParticipant)) && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1169,7 +1226,7 @@ export default function ContestDashboardPage() {
                               onClick={() => setCreateTeamOpen(true)}
                             >
                               <Plus className="mr-2" size={20} />
-                              Create Team
+                              {team ? `Create Another ${t("team")}` : `Create ${t("team")}`}
                             </Button>
                           </DialogTrigger>
                           <DialogContent className="bg-[#0a0a0a] border-white/10 max-h-[85vh] overflow-y-auto">
@@ -1539,6 +1596,7 @@ export default function ContestDashboardPage() {
                 <MemberEmailRow
                   apiBase={apiBase}
                   teamWord={t("team")}
+                  teamId={team?.id}
                   value={newMember}
                   onChange={setNewMember}
                 />

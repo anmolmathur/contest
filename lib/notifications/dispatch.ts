@@ -21,8 +21,9 @@ import {
   contests as contestsT,
   announcements,
 } from "@/lib/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { sendMail } from "./email";
+import { onAnyTeam } from "@/lib/multi-team";
 import {
   announcementTemplate,
   teamInviteTemplate,
@@ -224,7 +225,7 @@ export async function dispatchScoresPublished(args: {
   const links = await db.query.contestUsers.findMany({
     where: and(
       eq(contestUsers.contestId, args.contestId),
-      inArray(contestUsers.teamId, args.teamIds),
+      onAnyTeam(args.teamIds),
     ),
     with: { user: true },
   });

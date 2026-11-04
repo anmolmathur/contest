@@ -23,6 +23,8 @@ interface MemberEmailRowProps {
   value: MemberRow;
   onChange: (value: MemberRow) => void;
   onRemove?: () => void;
+  /** Team being joined (multi-team contests check membership of this team). */
+  teamId?: string | null;
 }
 
 /** One teammate: email first, then their name fills in or is asked for. */
@@ -32,6 +34,7 @@ export default function MemberEmailRow({
   value,
   onChange,
   onRemove,
+  teamId,
 }: MemberEmailRowProps) {
   const [lookup, setLookup] = useState<LookupResult | null>(null);
 
@@ -45,7 +48,7 @@ export default function MemberEmailRow({
       const res = await fetch(`${apiBase}/teams/lookup-member`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, teamId: teamId ?? undefined }),
       });
       if (res.status === 400) {
         setLookup({ status: "invalid" });

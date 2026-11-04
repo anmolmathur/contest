@@ -29,6 +29,13 @@ function isMock(): boolean {
   return !process.env.SMTP_HOST || process.env.EMAIL_DRIVER === "mock";
 }
 
+/** True when real delivery is configured (SMTP_HOST set, not forced to mock). */
+export function emailDeliveryConfigured(): boolean {
+  return !isMock();
+}
+
+let warnedMockInProd = false;
+
 async function sendMockMail(input: MailInput): Promise<{ id: string; driver: "mock" }> {
   const entry = {
     at: new Date().toISOString(),
@@ -74,7 +81,18 @@ async function sendSmtpMail(input: MailInput): Promise<{ id: string; driver: "sm
 
 export async function sendMail(input: MailInput): Promise<{ id: string; driver: "smtp" | "mock" }> {
   try {
-    if (isMock()) return sendMockMail(input);
+    if (isMock()) {
+      // In production a missing SMTP_HOST means NOTHING reaches any inbox
+      // (password resets, invites). Say so loudly instead of looking "sent".
+      if (process.env.NODE_ENV === "production" && process.env.EMAIL_DRIVER !== "mock" && !warnedMockInProd) {
+        warnedMockInProd = true;
+        console.error(
+          "[email] SMTP_HOST is not set in production: emails are only written to the mock outbox, not delivered. " +
+            "Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM.",
+        );
+      }
+      return await sendMockMail(input);
+    }
     return await sendSmtpMail(input);
   } catch (e) {
     console.error("[email] send failed:", e);

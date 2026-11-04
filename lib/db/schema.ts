@@ -495,6 +495,21 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   userIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
 }));
 
+// Team memberships for contests that let one person sit on several teams
+// (Ideathon, see lib/multi-team.ts). One row per (team, user) for every team
+// the user is on; contest_users.team_id stays the user's *active* team.
+// Single-team contests never write here.
+export const teamMembers = pgTable("team_members", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contestId: uuid("contest_id").notNull().references(() => contests.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+}, (table) => ({
+  uniqueTeamUser: unique().on(table.teamId, table.userId),
+  contestUserIdx: index("team_members_contest_user_idx").on(table.contestId, table.userId),
+}));
+
 // Relations
 export const contestsRelations = relations(contests, ({ one, many }) => ({
   creator: one(users, {

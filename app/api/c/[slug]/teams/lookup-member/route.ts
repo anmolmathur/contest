@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { resolveContest, canAdminContest, getContestUser } from "@/lib/contest-auth";
 import { isValidEmail, memberStatus } from "@/lib/team-members";
+import { allowsMultipleTeams } from "@/lib/multi-team";
 
 /**
  * POST /api/c/[slug]/teams/lookup-member
@@ -40,7 +41,10 @@ export async function POST(
       return NextResponse.json({ error: "Invalid email" }, { status: 400 });
     }
 
-    return NextResponse.json(await memberStatus(contest.id, email));
+    const teamId = typeof body?.teamId === "string" ? body.teamId : null;
+    return NextResponse.json(
+      await memberStatus(contest.id, email, { multiTeam: allowsMultipleTeams(contest), teamId }),
+    );
   } catch (error) {
     console.error("Member lookup error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

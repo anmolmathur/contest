@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { teams, contestUsers } from "@/lib/db/schema";
+import { teams } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canJudgeContest, getContestUser } from "@/lib/contest-auth";
+import { isOnTeam } from "@/lib/multi-team";
 
 export async function POST(
   req: NextRequest,
@@ -47,7 +48,7 @@ export async function POST(
     // If not a judge/admin, verify the requesting user is a member of the team
     if (!isJudge) {
       const requestingContestUser = await getContestUser(session.user.id, contest.id);
-      if (!requestingContestUser || requestingContestUser.teamId !== teamId) {
+      if (!(await isOnTeam(requestingContestUser, teamId))) {
         return NextResponse.json(
           { error: "You must be a team member to set the leader" },
           { status: 403 }
@@ -57,7 +58,7 @@ export async function POST(
 
     // Verify the new leader is a member of the team in this contest
     const newLeaderContestUser = await getContestUser(userId, contest.id);
-    if (!newLeaderContestUser || newLeaderContestUser.teamId !== teamId) {
+    if (!(await isOnTeam(newLeaderContestUser, teamId))) {
       return NextResponse.json(
         { error: "The selected user must be a team member" },
         { status: 400 }

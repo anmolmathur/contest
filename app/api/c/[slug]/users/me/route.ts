@@ -6,6 +6,7 @@ import { eq, and, isNotNull } from "drizzle-orm";
 import { resolveContest, isPlatformAdmin } from "@/lib/contest-auth";
 import { resolveSettings } from "@/lib/contest-config";
 import { checkTeamSlot, extraRolesOf, roleConfigOf } from "@/lib/team-capacity";
+import { allowsMultipleTeams, isOnTeam, teamIdsOf, teamsOf } from "@/lib/multi-team";
 
 /**
  * Track/category ids already claimed by a team. Only computed when the
@@ -23,7 +24,8 @@ async function takenTrackIdsFor(contest: { id: string; settings: unknown }): Pro
 
 // GET /api/c/[slug]/users/me - Get current user's contest membership
 //
-// Response: contest_users row fields + { role, platformOverride, user, takenTrackIds: string[] }
+// Response: contest_users row fields + { role, platformOverride, user, takenTrackIds: string[],
+//   multiTeam: boolean, teams: { id, name, status }[] }  (teams: every team I'm on, active first)
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -74,6 +76,8 @@ export async function GET(
         platformOverride: true,
         user,
         takenTrackIds,
+        multiTeam: allowsMultipleTeams(contest),
+        teams: [],
       });
     }
 
@@ -83,6 +87,8 @@ export async function GET(
       platformOverride: platformAdmin && contestUser.role !== "admin",
       user,
       takenTrackIds,
+      multiTeam: allowsMultipleTeams(contest),
+      teams: await teamsOf(contest.id, contestUser.userId, contestUser.teamId),
     });
   } catch (error) {
     console.error("Error fetching contest user:", error);
@@ -98,7 +104,8 @@ export async function GET(
 //  - respects per-team role caps when the caller is already in a team
 //  - department must be from settings.departments when that list is set
 //  - null / "" clears the primary role
-// Response: { participantRole, extraRoles, department }
+//  - activeTeamId (multi-team contests): switch which of my teams the dashboard shows
+// Response: { participantRole, extraRoles, department, activeTeamId? }
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -133,7 +140,27 @@ export async function PUT(
       participantRole?: unknown;
       extraRoles?: unknown;
       department?: unknown;
+      activeTeamId?: unknown;
     };
+
+    // ---- Switch active team (multi-team contests only) ----
+    if (body.activeTeamId !== undefined) {
+      if (typeof body.activeTeamId !== "string" || !body.activeTeamId) {
+        return NextResponse.json({ error: "activeTeamId must be a team id" }, { status: 400 });
+      }
+      if (!allowsMultipleTeams(contest)) {
+        return NextResponse.json({ error: "This contest allows only one team per person" }, { status: 400 });
+      }
+      if (!(await isOnTeam(contestUser, body.activeTeamId))) {
+        return NextResponse.json({ error: "You are not on that team" }, { status: 403 });
+      }
+      await db.update(contestUsers).set({ teamId: body.activeTeamId }).where(eq(contestUsers.id, contestUser.id));
+      await db.update(users).set({ teamId: body.activeTeamId }).where(eq(users.id, session.user.id));
+      if (body.participantRole === undefined && body.extraRoles === undefined && body.department === undefined) {
+        return NextResponse.json({ activeTeamId: body.activeTeamId });
+      }
+    }
+
     if (body.participantRole === undefined && body.extraRoles === undefined && body.department === undefined) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
@@ -191,11 +218,17 @@ export async function PUT(
         );
       }
 
-      // Per-team caps (e.g. one Team Lead) when already in a team.
-      if (contestUser.teamId && all.length > 0) {
+      // Per-team caps (e.g. one Team Lead) on every team I'm on. Roles are
+      // per person, so in multi-team contests they apply to all my teams.
+      const myTeamIds = allowsMultipleTeams(contest)
+        ? await teamIdsOf(contest.id, contestUser.userId, contestUser.teamId)
+        : contestUser.teamId
+          ? [contestUser.teamId]
+          : [];
+      for (const teamId of all.length > 0 ? myTeamIds : []) {
         const slotError = await checkTeamSlot({
           contest,
-          teamId: contestUser.teamId,
+          teamId,
           userId: session.user.id,
           participantRole,
           extraRoles,

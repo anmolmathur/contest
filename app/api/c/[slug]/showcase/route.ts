@@ -7,6 +7,7 @@ import { canAdminContest, resolveContest } from "@/lib/contest-auth";
 import { resolveSettings, type SubmissionField } from "@/lib/contest-config";
 import { resolveSubmissionFields, submissionHeadline, submissionValues } from "@/lib/submission-fields";
 import type { ShowcaseEntry, ShowcaseLink, ShowcasePayload } from "@/lib/live-types";
+import { withFullRosters } from "@/lib/multi-team";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
     const fields = resolveSubmissionFields(contest.submissionFields);
     const publicFields = fields.filter(isPublicField);
 
-    const teamRows = await db.query.teams.findMany({
+    const teamRows = await withFullRosters(contest, await db.query.teams.findMany({
       where: and(eq(teams.contestId, contest.id), eq(teams.approved, true)),
       with: {
         trackRef: { columns: { name: true } },
@@ -50,7 +51,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
           with: { user: { columns: { name: true } } },
         },
       },
-    });
+    }));
 
     const ids = teamRows.map((t) => t.id);
     const subs = ids.length ? await db.query.submissions.findMany({ where: inArray(submissions.teamId, ids) }) : [];
@@ -79,6 +80,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
         }
       }
       const members = t.contestMembers
+        .filter((m) => m.role === "participant")
         .map((m) => firstName(m.user?.name))
         .filter((n): n is string => !!n);
       return {

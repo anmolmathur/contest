@@ -19,7 +19,7 @@
 import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { passwordResetTokens, users } from "@/lib/db/schema";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 
 export const TOKEN_TTL_MINUTES = 60;
 export const RESEND_COOLDOWN_SECONDS = 60;
@@ -48,8 +48,10 @@ export async function issueResetTokenForEmail(
   emailLower: string,
   ttlMinutes: number = TOKEN_TTL_MINUTES,
 ): Promise<{ raw: string; userId: string; userName: string | null; userEmail: string } | null> {
+  // Case-insensitive: older accounts were stored with mixed-case emails, and
+  // an exact match silently skipped them (no reset email was ever sent).
   const user = await db.query.users.findFirst({
-    where: eq(users.email, emailLower),
+    where: sql`lower(${users.email}) = ${emailLower.trim().toLowerCase()}`,
   });
   if (!user) return null;
 

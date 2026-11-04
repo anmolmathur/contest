@@ -13,6 +13,7 @@ import { contestUsers, impactMetrics, stageDecisions, users } from "@/lib/db/sch
 import { and, eq, inArray } from "drizzle-orm";
 import { compositionChecks, compositionError, type CompositionMember } from "@/lib/team-composition";
 import { term } from "@/lib/contest-config";
+import { onTeam } from "@/lib/multi-team";
 
 export interface GatePhase {
   phase: number;
@@ -45,7 +46,7 @@ export async function teamCompositionMembers(contestId: string, teamId: string):
     })
     .from(contestUsers)
     .innerJoin(users, eq(users.id, contestUsers.userId))
-    .where(and(eq(contestUsers.contestId, contestId), eq(contestUsers.teamId, teamId)));
+    .where(and(eq(contestUsers.contestId, contestId), onTeam(teamId)));
   return rows.filter((r) => r.role !== "mentor" && r.role !== "validator");
 }
 

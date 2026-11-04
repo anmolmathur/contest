@@ -8,6 +8,7 @@ import { checkTeamSlot, extraRolesOf } from "@/lib/team-capacity";
 import { dispatchMembersAdded, dispatchTeamJoined } from "@/lib/notifications/dispatch";
 import { addMember, MemberConflictError, memberError, parseMembers } from "@/lib/team-members";
 import { contestTerm } from "@/lib/api-input";
+import { allowsMultipleTeams, isOnTeam, recordMembership } from "@/lib/multi-team";
 
 export async function POST(
   req: NextRequest,
@@ -65,13 +66,15 @@ export async function POST(
       );
     }
 
+    const multiTeam = allowsMultipleTeams(contest);
+
     if (byEmail) {
       const { members, error: inputError } = parseMembers([{ email: body.email, name: body.name }]);
       if (inputError) {
         return NextResponse.json({ error: inputError }, { status: 400 });
       }
       const member = members[0];
-      const problem = await memberError(contest.id, member, contestTerm(contest, "team"));
+      const problem = await memberError(contest.id, member, contestTerm(contest, "team"), { multiTeam, teamId });
       if (problem) {
         return NextResponse.json({ error: problem }, { status: 400 });
       }
@@ -87,7 +90,7 @@ export async function POST(
       }
 
       const result = await db.transaction((tx) =>
-        addMember(tx, { contestId: contest.id, teamId, member })
+        addMember(tx, { contestId: contest.id, teamId, member, multiTeam })
       );
       dispatchMembersAdded({
         contest,
@@ -118,10 +121,10 @@ export async function POST(
       );
     }
 
-    // Check if user already has a team in this contest
-    if (targetContestUser.teamId) {
+    // One team per person, except in multi-team contests (Ideathon).
+    if (multiTeam ? await isOnTeam(targetContestUser, teamId) : targetContestUser.teamId) {
       return NextResponse.json(
-        { error: "User is already in a team for this contest" },
+        { error: multiTeam ? "User is already on this team" : "User is already in a team for this contest" },
         { status: 400 }
       );
     }
@@ -140,17 +143,27 @@ export async function POST(
       return NextResponse.json({ error: slotError }, { status: 400 });
     }
 
-    // Update contest_users record with team assignment
-    await db
-      .update(contestUsers)
-      .set({ teamId })
-      .where(eq(contestUsers.id, targetContestUser.id));
+    await db.transaction(async (tx) => {
+      if (multiTeam) {
+        await recordMembership(tx, contest, teamId, userId);
+        if (targetContestUser.teamId) {
+          // Already on another team: keep it active, just record this one too.
+          await recordMembership(tx, contest, targetContestUser.teamId, userId);
+          return;
+        }
+      }
+      // Update contest_users record with team assignment
+      await tx
+        .update(contestUsers)
+        .set({ teamId })
+        .where(eq(contestUsers.id, targetContestUser.id));
 
-    // Also update users.teamId for backward compat
-    await db
-      .update(users)
-      .set({ teamId })
-      .where(eq(users.id, userId));
+      // Also update users.teamId for backward compat
+      await tx
+        .update(users)
+        .set({ teamId })
+        .where(eq(users.id, userId));
+    });
 
     dispatchTeamJoined({ contestId: contest.id, userId, teamName: team.name, created: false }).catch(() => {});
 

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { teams } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { resolveContest, canJudgeContest } from "@/lib/contest-auth";
+import { withFullRosters } from "@/lib/multi-team";
 
 export async function GET(
   req: NextRequest,
@@ -32,7 +33,7 @@ export async function GET(
     }
 
     // Get all teams for this contest with their members and submissions
-    const teamsWithData = await db.query.teams.findMany({
+    const teamsWithData = await withFullRosters(contest, await db.query.teams.findMany({
       where: eq(teams.contestId, contest.id),
       with: {
         members: {
@@ -57,9 +58,20 @@ export async function GET(
         submissions: true,
         trackRef: true,
       },
-    });
+    }));
 
-    return NextResponse.json({ teams: teamsWithData }, { status: 200 });
+    // `members` used to come from the legacy users.team_id column, which is
+    // global (not per contest) and could disagree with contest_users — the
+    // admin panel then showed people on a team their own dashboard didn't
+    // show. Derive it from the contest-scoped roster instead.
+    const teamsOut = teamsWithData.map((t) => ({
+      ...t,
+      members: t.contestMembers
+        .filter((cu) => cu.user)
+        .map((cu) => ({ id: cu.user!.id, name: cu.user!.name, email: cu.user!.email, role: cu.role })),
+    }));
+
+    return NextResponse.json({ teams: teamsOut }, { status: 200 });
   } catch (error) {
     console.error("Get all teams error:", error);
     return NextResponse.json(
