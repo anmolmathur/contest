@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dispatchMembersAdded, dispatchTeamJoined } from "@/lib/notifications/dispatch";
-import { addMember, MemberConflictError, memberError, parseMembers } from "@/lib/team-members";
+import { addMember, MemberConflictError, memberError, parseMembers, type MemberInput } from "@/lib/team-members";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { teams, users, contestUsers, tracks } from "@/lib/db/schema";
@@ -12,7 +12,12 @@ import { allowsMultipleTeams, recordMembership } from "@/lib/multi-team";
 
 /**
  * POST /api/c/[slug]/teams/create
- * Body: { name: string, trackId?: string, members?: { email: string, name?: string }[] }
+ * Body: { name: string, trackId?: string, members?: { email: string, name?: string }[],
+ *         leader?: { email: string, name?: string } }
+ *
+ * `leader` (contest/platform admins only) creates the team on someone's
+ * behalf: that person becomes creator + leader and the admin is not added.
+ * Admins may also create teams after the registration deadline.
  *
  * `members` are the creator's teammates: known emails are reused, new ones get
  * an account (`name` required) and a set-password email. Everyone is emailed.
@@ -38,17 +43,17 @@ export async function POST(
       return NextResponse.json({ error: "Contest not found" }, { status: 404 });
     }
 
-    // Check registration deadline
-    if (contest.registrationDeadline && new Date() > new Date(contest.registrationDeadline)) {
+    // Check user is a participant in this contest (or admin)
+    const contestUser = await getContestUser(session.user.id, contest.id);
+    const isAdmin = await canAdminContest(session.user.id, contest.id, session.user.email ?? undefined);
+
+    // Check registration deadline (organisers can still set teams up)
+    if (!isAdmin && contest.registrationDeadline && new Date() > new Date(contest.registrationDeadline)) {
       return NextResponse.json(
         { error: "Registration deadline has passed. Team creation is no longer allowed." },
         { status: 403 }
       );
     }
-
-    // Check user is a participant in this contest (or admin)
-    const contestUser = await getContestUser(session.user.id, contest.id);
-    const isAdmin = await canAdminContest(session.user.id, contest.id, session.user.email ?? undefined);
 
     if (!contestUser && !isAdmin) {
       return NextResponse.json(
@@ -137,7 +142,21 @@ export async function POST(
     // One team per person, except where the contest type allows several
     // (Ideathon): then the new team simply becomes their active team.
     const multiTeam = allowsMultipleTeams(contest);
-    if (contestUser?.teamId && !multiTeam) {
+
+    // Admin creating the team for someone else: they lead it, admin stays out.
+    let leader: MemberInput | null = null;
+    if (body?.leader !== undefined && body?.leader !== null) {
+      if (!isAdmin) {
+        return NextResponse.json({ error: "Only organisers can create a team for someone else" }, { status: 403 });
+      }
+      const parsed = parseMembers([body.leader]);
+      if (parsed.error) {
+        return NextResponse.json({ error: `Leader: ${parsed.error}` }, { status: 400 });
+      }
+      leader = parsed.members[0];
+    }
+
+    if (!leader && contestUser?.teamId && !multiTeam) {
       return NextResponse.json(
         { error: "You are already in a team for this contest" },
         { status: 400 }
@@ -149,21 +168,29 @@ export async function POST(
     if (membersError) {
       return NextResponse.json({ error: membersError }, { status: 400 });
     }
-    const creatorEmail = session.user.email?.trim().toLowerCase();
+    const creatorEmail = (leader?.email ?? session.user.email)?.trim().toLowerCase();
     if (members.some((m) => m.email === creatorEmail)) {
       return NextResponse.json(
-        { error: "You are already on this team. Add only your teammates." },
+        {
+          error: leader
+            ? `${leader.email} is already the leader. List only the other teammates.`
+            : "You are already on this team. Add only your teammates.",
+        },
         { status: 400 }
       );
     }
     if (members.length + 1 > contest.maxTeamMembers) {
       return NextResponse.json(
-        { error: `A team can have at most ${contest.maxTeamMembers} members including you` },
+        {
+          error: leader
+            ? `A team can have at most ${contest.maxTeamMembers} members including the leader`
+            : `A team can have at most ${contest.maxTeamMembers} members including you`,
+        },
         { status: 400 }
       );
     }
     const teamWord = contestTerm(contest, "team");
-    for (const member of members) {
+    for (const member of leader ? [leader, ...members] : members) {
       const memberProblem = await memberError(contest.id, member, teamWord, { multiTeam });
       if (memberProblem) {
         return NextResponse.json({ error: memberProblem }, { status: 400 });
@@ -183,6 +210,24 @@ export async function POST(
           leaderId: session.user.id,
         })
         .returning();
+
+      const added = [];
+
+      if (leader) {
+        // On behalf of `leader`: enrol them, then hand them the team.
+        const result = await addMember(tx, { contestId: contest.id, teamId: newTeam.id, member: leader, multiTeam });
+        added.push({ email: leader.email, ...result });
+        const [handed] = await tx
+          .update(teams)
+          .set({ createdBy: result.userId, leaderId: result.userId })
+          .where(eq(teams.id, newTeam.id))
+          .returning();
+        for (const member of members) {
+          const r = await addMember(tx, { contestId: contest.id, teamId: newTeam.id, member, multiTeam });
+          added.push({ email: member.email, ...r });
+        }
+        return { newTeam: handed, added };
+      }
 
       // Put the creator on the team via contest_users. An admin with no
       // contest_users row (e.g. a platform admin) gets one here: without it
@@ -214,7 +259,6 @@ export async function POST(
         .set({ teamId: newTeam.id })
         .where(eq(users.id, session.user.id));
 
-      const added = [];
       for (const member of members) {
         const result = await addMember(tx, { contestId: contest.id, teamId: newTeam.id, member, multiTeam });
         added.push({ email: member.email, ...result });
@@ -222,12 +266,14 @@ export async function POST(
       return { newTeam, added };
     });
 
-    dispatchTeamJoined({
-      contestId: contest.id,
-      userId: session.user.id,
-      teamName: newTeam.name,
-      created: true,
-    }).catch(() => {});
+    if (!leader) {
+      dispatchTeamJoined({
+        contestId: contest.id,
+        userId: session.user.id,
+        teamName: newTeam.name,
+        created: true,
+      }).catch(() => {});
+    }
 
     dispatchMembersAdded({
       contest,

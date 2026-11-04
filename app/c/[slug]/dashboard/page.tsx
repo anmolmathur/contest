@@ -245,6 +245,9 @@ export default function ContestDashboardPage() {
   const isAdmin = contestMembership?.role === "admin";
   const isParticipant = contestMembership?.role === "participant";
   const isCreator = team?.createdBy === session?.user?.id;
+  // Organisers (contest + platform admins) can manage any team they're on,
+  // even after submissions or the registration deadline — the API allows it.
+  const canManageTeam = isCreator || isAdmin;
 
   // Team roles the contest defines (e.g. Team Lead, Finance, Presenter)
   const roleOptions = (contest.roleConfig ?? []).filter((r) => r.role && r.role.trim());
@@ -1210,7 +1213,7 @@ export default function ContestDashboardPage() {
                 )}
               </div>
 
-              {(!team || (multiTeam && isParticipant)) && (
+              {(!team || (multiTeam && (isParticipant || isAdmin))) && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1221,7 +1224,7 @@ export default function ContestDashboardPage() {
                         >
                           <DialogTrigger asChild>
                             <Button
-                              disabled={teamCount >= maxTeams || isRegistrationClosed}
+                              disabled={teamCount >= maxTeams || (isRegistrationClosed && !isAdmin)}
                               className="bg-gradient-to-r from-neon-purple to-electric-blue"
                               onClick={() => setCreateTeamOpen(true)}
                             >
@@ -1386,7 +1389,7 @@ export default function ContestDashboardPage() {
                         </Dialog>
                       </div>
                     </TooltipTrigger>
-                    {(teamCount >= maxTeams || isRegistrationClosed) && (
+                    {(teamCount >= maxTeams || (isRegistrationClosed && !isAdmin)) && (
                       <TooltipContent>
                         <p>{isRegistrationClosed ? "Registration deadline has passed" : `All ${maxTeams} team slots are full`}</p>
                       </TooltipContent>
@@ -1424,7 +1427,7 @@ export default function ContestDashboardPage() {
                         </span>
                       )}
                     </div>
-                    {isCreator && submissions.length === 0 && (
+                    {((isCreator && submissions.length === 0) || isAdmin) && (
                       <div className="flex items-center gap-2">
                         <Button
                           onClick={handleOpenEditTeam}
@@ -1535,9 +1538,9 @@ export default function ContestDashboardPage() {
                               <Crown size={16} />
                             </Button>
                           )}
-                          {isCreator &&
-                            member.id !== team.createdBy &&
-                            submissions.length === 0 && (
+                          {canManageTeam &&
+                            member.id !== session?.user?.id &&
+                            (submissions.length === 0 || isAdmin) && (
                               <Button
                                 onClick={() => handleRemoveMember(member.id)}
                                 variant="ghost"
@@ -1554,7 +1557,7 @@ export default function ContestDashboardPage() {
                 </div>
 
                 {/* Add Member Button */}
-                {isCreator &&
+                {canManageTeam &&
                   teamMembers.filter((m) => m.contestRole !== "mentor").length < contest.maxTeamMembers && (
                     <Button
                       onClick={() => {

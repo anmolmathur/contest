@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { TeamMentorPanel } from "@/components/TeamMentorPanel";
+import { AdminCreateTeamButton, AdminTeamEditor } from "@/components/admin/AdminTeamTools";
 import GlowButton from "@/components/GlowButton";
 import GlassCard from "@/components/GlassCard";
 import BackgroundPattern from "@/components/BackgroundPattern";
@@ -124,6 +125,7 @@ interface Team {
   name: string;
   track: string | null;
   trackName: string | null;
+  trackId?: string | null;
   approved: boolean;
   leaderId: string | null;
   members: TeamMember[];
@@ -250,7 +252,10 @@ export default function ContestAdminPage() {
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
 
   const [viewTeamOpen, setViewTeamOpen] = useState(false);
-  const [viewingTeam, setViewingTeam] = useState<Team | null>(null);
+  const [viewingTeamId, setViewingTeamId] = useState<string | null>(null);
+  // Derived from the list so edits (rename, members, leader) show right away.
+  const viewingTeam = teams.find((tm) => tm.id === viewingTeamId) ?? null;
+  const setViewingTeam = (tm: Team | null) => setViewingTeamId(tm?.id ?? null);
 
   // Settings form (contest config)
   const [settingsForm, setSettingsForm] = useState({
@@ -1372,9 +1377,19 @@ export default function ContestAdminPage() {
             <GlassCard className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-2xl font-bold text-white">Teams</h3>
-                <p className="text-gray-400 text-sm">
-                  Approved: {stats.approvedTeams} / {contest.maxApprovedTeams}
-                </p>
+                <div className="flex items-center gap-4">
+                  <p className="text-gray-400 text-sm">
+                    Approved: {stats.approvedTeams} / {contest.maxApprovedTeams}
+                  </p>
+                  <AdminCreateTeamButton
+                    slug={slug}
+                    tracks={tracks}
+                    teamWord={t("team")}
+                    trackWord={t("track")}
+                    maxMembers={contest.maxTeamMembers}
+                    onCreated={loadTeams}
+                  />
+                </div>
               </div>
               {teams.length === 0 ? (
                 <p className="text-gray-400 text-center py-12">No teams yet.</p>
@@ -2259,29 +2274,15 @@ export default function ContestAdminPage() {
                   {viewingTeam.approved ? "Approved" : "Pending"}
                 </span>
               </div>
-              <div>
-                <h5 className="text-lg font-semibold text-white mb-3">
-                  Members ({(viewingTeam.members?.filter((m) => m.role !== "mentor").length) || viewingTeam.members?.length || 0})
-                </h5>
-                <div className="space-y-2">
-                  {viewingTeam.members?.filter((m) => m.role !== "mentor").map((member) => (
-                    <div key={member.id} className={`bg-white/5 border rounded-lg p-3 ${
-                      member.id === viewingTeam.leaderId ? "border-amber-500/30 bg-amber-500/5" : "border-white/10"
-                    }`}>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-white font-semibold">{member.name || "Unnamed"}</p>
-                        {member.id === viewingTeam.leaderId && (
-                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold">
-                            <Crown size={10} />
-                            Leader
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500">{member.email}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AdminTeamEditor
+                key={viewingTeam.id}
+                slug={slug}
+                team={viewingTeam}
+                tracks={tracks}
+                teamWord={t("team")}
+                trackWord={t("track")}
+                onChanged={loadTeams}
+              />
               {/* Contest admins can manage mentors on any team. */}
               <TeamMentorPanel slug={slug} teamId={viewingTeam.id} canManage={true} />
             </div>

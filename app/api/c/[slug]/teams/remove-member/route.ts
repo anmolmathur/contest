@@ -84,6 +84,15 @@ export async function POST(
       );
     }
 
+    // Removing the leader hands leadership back to the creator (or clears it
+    // if the creator is the one leaving) so the team never points at an ex-member.
+    if (team.leaderId === userId) {
+      await db
+        .update(teams)
+        .set({ leaderId: team.createdBy !== userId ? team.createdBy : null, updatedAt: new Date() })
+        .where(eq(teams.id, teamId));
+    }
+
     // Multi-team (Ideathon): leave just this team; their active team moves
     // to another team they're still on.
     if (allowsMultipleTeams(contest)) {
