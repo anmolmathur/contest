@@ -68,7 +68,14 @@ export async function GET(
       ...t,
       members: t.contestMembers
         .filter((cu) => cu.user)
-        .map((cu) => ({ id: cu.user!.id, name: cu.user!.name, email: cu.user!.email, role: cu.role })),
+        .map((cu) => ({
+          id: cu.user!.id,
+          name: cu.user!.name,
+          email: cu.user!.email,
+          role: cu.role,
+          participantRole: cu.participantRole ?? null,
+          extraRoles: Array.isArray(cu.extraRoles) ? (cu.extraRoles as string[]) : [],
+        })),
     }));
 
     return NextResponse.json({ teams: teamsOut }, { status: 200 });

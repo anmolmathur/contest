@@ -46,6 +46,7 @@ export async function GET(
         role: users.role,
         department: users.department,
         participantRole: contestUsers.participantRole,
+        extraRoles: contestUsers.extraRoles,
         contestRole: contestUsers.role,
       })
       .from(contestUsers)

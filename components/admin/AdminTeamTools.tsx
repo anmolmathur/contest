@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import MemberEmailRow, { type MemberRow } from "@/components/team/MemberEmailRow";
+import MemberRolePicker, { memberRoles, type RoleOption } from "@/components/team/MemberRolePicker";
 
 export interface AdminTeamTrack {
   id: string;
@@ -23,6 +24,8 @@ export interface AdminTeamMember {
   name: string | null;
   email: string;
   role?: string | null;
+  participantRole?: string | null;
+  extraRoles?: unknown;
 }
 
 export interface AdminEditableTeam {
@@ -183,6 +186,7 @@ export function AdminTeamEditor({
   tracks,
   teamWord,
   trackWord,
+  roleOptions = [],
   onChanged,
 }: {
   slug: string;
@@ -190,6 +194,8 @@ export function AdminTeamEditor({
   tracks: AdminTeamTrack[];
   teamWord: string;
   trackWord: string;
+  /** contest.roleConfig — when set, each member gets a role picker. */
+  roleOptions?: RoleOption[];
   onChanged: () => void;
 }) {
   const apiBase = `/api/c/${slug}`;
@@ -270,6 +276,17 @@ export function AdminTeamEditor({
                     )}
                   </div>
                   <p className="text-xs text-gray-500 truncate">{m.email}</p>
+                  {m.role === "participant" && (
+                    <MemberRolePicker
+                      apiBase={apiBase}
+                      teamId={team.id}
+                      userId={m.id}
+                      current={memberRoles(m)}
+                      options={roleOptions}
+                      canEdit
+                      onSaved={onChanged}
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {!isLeader && (

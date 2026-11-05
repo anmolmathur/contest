@@ -17,6 +17,7 @@ import { submissionValues, validateSubmission } from "@/lib/submission-fields";
 import type { SubmissionValues } from "@/lib/contest-config";
 import Leaderboard from "@/components/Leaderboard";
 import MemberEmailRow, { type MemberRow } from "@/components/team/MemberEmailRow";
+import MemberRolePicker, { memberRoles } from "@/components/team/MemberRolePicker";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,6 +89,7 @@ interface TeamMember {
   role: string;
   department: string | null;
   participantRole?: string | null;
+  extraRoles?: unknown;
   /** contest_users.role — "mentor" rows don't count toward team size */
   contestRole?: string | null;
 }
@@ -1514,9 +1516,24 @@ export default function ContestDashboardPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-400">
-                            {member.participantRole || member.role}
-                          </p>
+                          {roleOptions.length > 0 && member.contestRole === "participant" ? (
+                            <MemberRolePicker
+                              apiBase={apiBase}
+                              teamId={team.id}
+                              userId={member.id}
+                              current={memberRoles(member)}
+                              options={roleOptions}
+                              canEdit={canManageTeam || team.leaderId === session?.user?.id}
+                              onSaved={async () => {
+                                await loadTeamData(team.id);
+                                if (member.id === session?.user?.id) await fetchMembership();
+                              }}
+                            />
+                          ) : (
+                            <p className="text-sm text-gray-400">
+                              {member.participantRole || member.role}
+                            </p>
+                          )}
                           <p className="text-xs text-gray-500">
                             {member.email}
                           </p>

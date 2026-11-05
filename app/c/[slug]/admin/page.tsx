@@ -137,6 +137,8 @@ interface TeamMember {
   name: string | null;
   email: string;
   role?: string | null;
+  participantRole?: string | null;
+  extraRoles?: string[];
 }
 
 interface Track {
@@ -2281,6 +2283,7 @@ export default function ContestAdminPage() {
                 tracks={tracks}
                 teamWord={t("team")}
                 trackWord={t("track")}
+                roleOptions={(contest.roleConfig ?? []).filter((r) => r.role?.trim())}
                 onChanged={loadTeams}
               />
               {/* Contest admins can manage mentors on any team. */}
