@@ -5,7 +5,7 @@
  * behalf, rename it / change its track, and add, remove or promote members.
  * Contest admins and platform admins use these; the API checks the role.
  */
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Crown, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,8 +32,18 @@ export interface AdminEditableTeam {
   id: string;
   name: string;
   trackId?: string | null;
+  problemId?: string | null;
   leaderId: string | null;
   members: AdminTeamMember[];
+}
+
+interface BankProblem {
+  id: string;
+  title: string;
+  status: string;
+  maxTeams: number;
+  slotsLeft: number;
+  claimedBy: Array<{ id: string; name: string }>;
 }
 
 const EMPTY: MemberRow = { email: "", name: "" };
@@ -187,6 +197,7 @@ export function AdminTeamEditor({
   teamWord,
   trackWord,
   roleOptions = [],
+  showProblems = false,
   onChanged,
 }: {
   slug: string;
@@ -196,6 +207,8 @@ export function AdminTeamEditor({
   trackWord: string;
   /** contest.roleConfig — when set, each member gets a role picker. */
   roleOptions?: RoleOption[];
+  /** Ideathon: let the organiser set the crew's problem from the Problem Bank. */
+  showProblems?: boolean;
   onChanged: () => void;
 }) {
   const apiBase = `/api/c/${slug}`;
@@ -222,6 +235,64 @@ export function AdminTeamEditor({
   };
 
   const members = team.members.filter((m) => m.role !== "mentor");
+
+  // ---- Problem (Ideathon) ----
+  const [problems, setProblems] = useState<BankProblem[]>([]);
+  const [problemId, setProblemId] = useState(team.problemId ?? "");
+  const fetchProblems = useCallback(async (): Promise<BankProblem[] | null> => {
+    try {
+      const res = await fetch(`${apiBase}/problems`, { cache: "no-store" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return ((data.problems ?? []) as BankProblem[]).filter((p) => p.status === "open" || p.status === "approved");
+    } catch {
+      return null; // Problem Bank unavailable; the section just shows no options.
+    }
+  }, [apiBase]);
+  const loadProblems = useCallback(async () => {
+    const list = await fetchProblems();
+    if (list) setProblems(list);
+  }, [fetchProblems]);
+  useEffect(() => {
+    if (!showProblems) return;
+    let cancelled = false;
+    fetchProblems().then((list) => {
+      if (!cancelled && list) setProblems(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showProblems, fetchProblems]);
+
+  const assignProblem = async (pid: string | null) => {
+    const send = (override: boolean) =>
+      fetch(`${apiBase}/teams/${team.id}/problem`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ problemId: pid, override }),
+      });
+    return run(async () => {
+      try {
+        let res = await send(false);
+        let data = await res.json().catch(() => ({}));
+        if (res.status === 409 && data.code === "PROBLEM_FULL") {
+          if (!confirm(`${data.error}. Assign it to ${team.name} anyway?`)) return "Not assigned";
+          res = await send(true);
+          data = await res.json().catch(() => ({}));
+        }
+        if (!res.ok) return data.error || "Could not set the problem";
+        if (pid === null) setProblemId("");
+        // The problem sets the crew's value lens; keep the form in step so
+        // "Save changes" doesn't put the old one back.
+        if (typeof data.trackId === "string") setTrackId(data.trackId);
+        await loadProblems();
+        return null;
+      } catch {
+        return "Network error";
+      }
+    }, pid ? "Problem assigned" : "Problem cleared");
+  };
+  const currentProblem = problems.find((p) => p.id === team.problemId);
   const detailsChanged = name.trim() !== team.name || (trackId || null) !== (team.trackId ?? null);
 
   return (
@@ -254,6 +325,55 @@ export function AdminTeamEditor({
           Save changes
         </Button>
       </div>
+
+      {showProblems && (
+        <div className="space-y-2">
+          <Label htmlFor="edit-team-problem" className="text-gray-200">Problem</Label>
+          <p className="text-xs text-gray-400">
+            {team.problemId
+              ? `Current: ${currentProblem?.title ?? "a problem no longer open in the bank"}`
+              : `No problem yet. Crews normally claim one on the Problem Bank page; set it here if they can't.`}
+          </p>
+          <select
+            id="edit-team-problem"
+            value={problemId}
+            onChange={(e) => setProblemId(e.target.value)}
+            className={selectClass}
+          >
+            <option value="" className="bg-[#0a0a0a]">Choose a problem…</option>
+            {problems.map((p) => {
+              const mine = p.claimedBy.some((c) => c.id === team.id);
+              const note = mine ? "this crew" : p.slotsLeft > 0 ? `${p.slotsLeft} of ${p.maxTeams} slots left` : "full";
+              return (
+                <option key={p.id} value={p.id} className="bg-[#0a0a0a]">
+                  {p.title} ({note})
+                </option>
+              );
+            })}
+          </select>
+          <div className="flex gap-2">
+            <Button
+              disabled={busy || !problemId || problemId === (team.problemId ?? "")}
+              onClick={() => assignProblem(problemId)}
+              className="bg-gradient-to-r from-neon-purple to-electric-blue"
+            >
+              Assign problem
+            </Button>
+            {team.problemId && (
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  if (confirm(`Clear the problem for ${team.name}?`)) assignProblem(null);
+                }}
+                className="bg-transparent border-white/10 text-white hover:bg-white/10 hover:text-white"
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div>
         <h5 className="text-lg font-semibold text-white mb-3">Members ({members.length})</h5>

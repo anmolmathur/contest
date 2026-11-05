@@ -126,6 +126,7 @@ interface Team {
   track: string | null;
   trackName: string | null;
   trackId?: string | null;
+  problemId?: string | null;
   approved: boolean;
   leaderId: string | null;
   members: TeamMember[];
@@ -2284,6 +2285,7 @@ export default function ContestAdminPage() {
                 teamWord={t("team")}
                 trackWord={t("track")}
                 roleOptions={(contest.roleConfig ?? []).filter((r) => r.role?.trim())}
+                showProblems={contest.contestType === "ideathon"}
                 onChanged={loadTeams}
               />
               {/* Contest admins can manage mentors on any team. */}
