@@ -49,7 +49,7 @@ export default function ShowcasePage() {
     return teams.filter((e) => {
       if (filter !== "all" && e.track !== filter) return false;
       if (!q) return true;
-      return [e.name, e.track, e.headline, ...e.members].filter(Boolean).join(" ").toLowerCase().includes(q);
+      return [e.name, e.track, e.problemTitle, e.headline, ...e.members].filter(Boolean).join(" ").toLowerCase().includes(q);
     });
   }, [teams, filter, query]);
 
@@ -167,8 +167,16 @@ function ShowcaseCard({ entry, index }: { entry: ShowcaseEntry; index: number })
           </span>
         )}
         <h2 className="text-xl font-bold text-white">{entry.name}</h2>
+        {entry.problemTitle && (
+          <p className="mt-2 text-sm font-semibold text-gray-200">
+            <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">Problem</span>
+            {entry.problemTitle}
+          </p>
+        )}
         {entry.headline ? (
           <p className="mt-2 line-clamp-5 flex-1 text-sm leading-relaxed text-gray-300">{entry.headline}</p>
+        ) : entry.problemTitle ? (
+          <div className="flex-1" />
         ) : (
           <p className="mt-2 flex-1 text-sm italic text-gray-500">Details coming soon.</p>
         )}

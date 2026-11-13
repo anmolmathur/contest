@@ -46,6 +46,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
       where: and(eq(teams.contestId, contest.id), eq(teams.approved, true)),
       with: {
         trackRef: { columns: { name: true } },
+        problem: { columns: { title: true, description: true } },
         contestMembers: {
           where: and(eq(contestUsers.contestId, contest.id), eq(contestUsers.role, "participant")),
           with: { user: { columns: { name: true } } },
@@ -79,6 +80,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
           }
         }
       }
+      // No submission text yet: fall back to the crew's assigned Problem Bank problem.
+      let problemTitle: string | null = null;
+      if (!headline && t.problem) {
+        problemTitle = t.problem.title;
+        headline = (t.problem.description ?? "").trim().slice(0, 240);
+      }
       const members = t.contestMembers
         .filter((m) => m.role === "participant")
         .map((m) => firstName(m.user?.name))
@@ -89,6 +96,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
         track: t.trackRef?.name ?? t.track ?? null,
         members,
         headline,
+        problemTitle,
         publicLinks: publicFields.map((f) => links.get(f.key)).filter((l): l is ShowcaseLink => !!l),
       };
     });

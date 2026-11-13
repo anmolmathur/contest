@@ -86,6 +86,8 @@ export interface ShowcaseEntry {
   track: string | null;
   members: string[];
   headline: string;
+  /** Set when the crew has not submitted yet and its assigned Problem Bank problem is shown instead. */
+  problemTitle?: string | null;
   publicLinks: ShowcaseLink[];
 }
 
