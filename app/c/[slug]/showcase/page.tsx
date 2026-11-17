@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ExternalLink, Eye, FileText, Lightbulb, Search, Users } from "lucide-react";
@@ -150,6 +150,45 @@ export default function ShowcasePage() {
   );
 }
 
+function ExpandableText({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => {
+      if (!expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, expanded]);
+
+  return (
+    <div className="mt-2 flex-1">
+      <p
+        ref={ref}
+        className={`whitespace-pre-line text-sm leading-relaxed text-gray-300 ${expanded ? "" : "line-clamp-5"}`}
+      >
+        {text}
+      </p>
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mt-1.5 text-xs font-semibold text-electric-blue hover:underline"
+        >
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ShowcaseCard({ entry, index }: { entry: ShowcaseEntry; index: number }) {
   return (
     <motion.article
@@ -174,7 +213,7 @@ function ShowcaseCard({ entry, index }: { entry: ShowcaseEntry; index: number })
           </p>
         )}
         {entry.headline ? (
-          <p className="mt-2 line-clamp-5 flex-1 text-sm leading-relaxed text-gray-300">{entry.headline}</p>
+          <ExpandableText text={entry.headline} />
         ) : entry.problemTitle ? (
           <div className="flex-1" />
         ) : (

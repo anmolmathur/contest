@@ -11,6 +11,9 @@ import { withFullRosters } from "@/lib/multi-team";
 
 export const dynamic = "force-dynamic";
 
+/** Full card text is sent; the card clamps it and offers "Read more". */
+const SHOWCASE_TEXT_MAX = 5000;
+
 /** File fields that are safe to expose publicly (decks, prototypes, videos). */
 const PUBLIC_FILE_KEYS = new Set(["pitchDeck", "finalDeck", "prototypeUrl", "demoUrl", "pitchVideoUrl", "demoVideoUrl"]);
 
@@ -70,7 +73,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
       const links = new Map<string, ShowcaseLink>();
       for (const s of list) {
         const values = submissionValues(s as unknown as Record<string, unknown>);
-        if (!headline) headline = submissionHeadline(fields, values);
+        if (!headline) headline = submissionHeadline(fields, values, SHOWCASE_TEXT_MAX);
         for (const f of publicFields) {
           if (links.has(f.key)) continue;
           const v = values[f.key];
@@ -84,7 +87,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
       let problemTitle: string | null = null;
       if (!headline && t.problem) {
         problemTitle = t.problem.title;
-        headline = (t.problem.description ?? "").trim().slice(0, 240);
+        headline = (t.problem.description ?? "").trim().slice(0, SHOWCASE_TEXT_MAX);
       }
       const members = t.contestMembers
         .filter((m) => m.role === "participant")

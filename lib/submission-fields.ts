@@ -231,11 +231,11 @@ export function legacyColumnsFrom(values: SubmissionValues) {
 }
 
 /** Short one-line summary of a submission, for lists/cards. */
-export function submissionHeadline(fields: SubmissionField[], values: SubmissionValues): string {
+export function submissionHeadline(fields: SubmissionField[], values: SubmissionValues, maxLength = 240): string {
   for (const f of fields) {
     if (f.type === "textarea" || f.type === "text") {
       const v = values[f.key];
-      if (typeof v === "string" && v.trim()) return v.trim().slice(0, 240);
+      if (typeof v === "string" && v.trim()) return v.trim().slice(0, maxLength);
     }
   }
   return "";
