@@ -8,7 +8,38 @@ import { useRouter } from "next/navigation";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import GlowButton from "@/components/GlowButton";
 import { getPreset } from "@/lib/contest-types";
-import { term, termPlural, type Terminology } from "@/lib/contest-config";
+import {
+  term,
+  termPlural,
+  CONTEST_TYPES,
+  isContestType,
+  type ContestType,
+  type Terminology,
+} from "@/lib/contest-config";
+
+type TypeFilter = "all" | ContestType;
+
+// Order the category tabs appear in on the home page.
+const TAB_ORDER: ContestType[] = ["business_symposium", "ideathon", "hackathon"];
+
+const typeAccent: Record<ContestType, { active: string; dot: string }> = {
+  hackathon: {
+    active: "border-electric-blue/60 bg-electric-blue/15 text-blue-100",
+    dot: "bg-electric-blue",
+  },
+  business_symposium: {
+    active: "border-hot-pink/60 bg-hot-pink/15 text-pink-100",
+    dot: "bg-hot-pink",
+  },
+  ideathon: {
+    active: "border-emerald-400/60 bg-emerald-400/15 text-emerald-100",
+    dot: "bg-emerald-400",
+  },
+};
+
+function contestTypeOf(c: { contestType?: string | null }): ContestType {
+  return isContestType(c.contestType) ? c.contestType : "hackathon";
+}
 
 interface ContestSummary {
   id: string;
@@ -86,6 +117,25 @@ export default function HomePage() {
   const [contests, setContests] = useState<ContestSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+
+  function selectType(next: TypeFilter) {
+    setTypeFilter(next);
+    const url = new URL(window.location.href);
+    if (next === "all") url.searchParams.delete("type");
+    else url.searchParams.set("type", next);
+    window.history.replaceState(null, "", url.toString());
+  }
+
+  const typeCounts = CONTEST_TYPES.reduce(
+    (acc, t) => {
+      acc[t] = contests.filter((c) => contestTypeOf(c) === t).length;
+      return acc;
+    },
+    {} as Record<ContestType, number>,
+  );
+  const visibleContests =
+    typeFilter === "all" ? contests : contests.filter((c) => contestTypeOf(c) === typeFilter);
 
   useEffect(() => {
     async function fetchContests() {
@@ -94,6 +144,10 @@ export default function HomePage() {
         if (!res.ok) throw new Error("Failed to fetch contests");
         const data: ContestSummary[] = await res.json();
         setContests(data);
+
+        // Honour ?type= so a filtered view can be shared as a link.
+        const linkedType = new URLSearchParams(window.location.search).get("type");
+        if (isContestType(linkedType)) setTypeFilter(linkedType);
 
         // If there is exactly 1 active contest, redirect to it
         const activeContests = data.filter((c) => c.status === "active");
@@ -174,10 +228,53 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="text-4xl md:text-5xl font-bold text-center mb-12 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent"
+            className="text-4xl md:text-5xl font-bold text-center mb-8 bg-gradient-to-r from-neon-purple via-electric-blue to-hot-pink bg-clip-text text-transparent"
           >
-            All Contests
+            {typeFilter === "all" ? "All Contests" : `${getPreset(typeFilter).label}s`}
           </motion.h2>
+
+          {/* Category filter */}
+          {!loading && !error && contests.length > 0 && (
+            <div
+              role="tablist"
+              aria-label="Filter contests by type"
+              className="flex flex-wrap justify-center gap-3 mb-12"
+            >
+              {(["all", ...TAB_ORDER] as TypeFilter[]).map((t) => {
+                const selected = typeFilter === t;
+                const count = t === "all" ? contests.length : typeCounts[t];
+                const preset = t === "all" ? null : getPreset(t);
+                return (
+                  <button
+                    key={t}
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => selectType(t)}
+                    title={preset?.tagline}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full border text-sm font-semibold transition-all ${
+                      selected
+                        ? t === "all"
+                          ? "border-white/40 bg-white/15 text-white"
+                          : typeAccent[t].active
+                        : "border-white/10 bg-white/5 text-gray-400 hover:text-white hover:border-white/25"
+                    }`}
+                  >
+                    {t !== "all" && (
+                      <span className={`w-2 h-2 rounded-full ${typeAccent[t].dot}`} />
+                    )}
+                    {t === "all" ? "All" : preset!.label}
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs tabular-nums ${
+                        selected ? "bg-black/20" : "bg-white/10"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Loading State */}
           {loading && (
@@ -212,10 +309,25 @@ export default function HomePage() {
             </div>
           )}
 
+          {/* Empty category */}
+          {!loading && !error && contests.length > 0 && visibleContests.length === 0 && (
+            <div className="text-center py-16">
+              <p className="text-gray-400 text-lg">
+                No {typeFilter !== "all" && getPreset(typeFilter).label.toLowerCase()} contests yet.
+              </p>
+              <button
+                onClick={() => selectType("all")}
+                className="mt-4 px-6 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
+              >
+                Show all contests
+              </button>
+            </div>
+          )}
+
           {/* Contest Grid */}
-          {!loading && !error && contests.length > 0 && (
+          {!loading && !error && visibleContests.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {contests.map((contest, index) => {
+              {visibleContests.map((contest, index) => {
                 const status = statusColors[contest.status] ?? statusColors.draft;
                 return (
                   <motion.div
