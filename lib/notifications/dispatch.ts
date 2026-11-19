@@ -20,10 +20,13 @@ import {
   contestUsers,
   contests as contestsT,
   announcements,
+  teams,
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { sendMail } from "./email";
-import { onAnyTeam } from "@/lib/multi-team";
+import { onAnyTeam, onTeam } from "@/lib/multi-team";
+import { googleSsoEnabled } from "@/lib/auth";
+import { memberIdLabel } from "@/lib/member-identifier";
 import {
   announcementTemplate,
   teamInviteTemplate,
@@ -37,6 +40,7 @@ import {
   type ScoresPublishedCtx,
   type RegistrationConfirmedCtx,
   type TeamJoinedCtx,
+  type TeamDetails,
 } from "./templates";
 
 export type NotificationType =
@@ -98,6 +102,8 @@ async function resolveContestCtx(contestId: string) {
     supportEmail: contest.supportEmail ?? null,
     actionUrl: contestUrl(contest, "/dashboard"),
     teamWord: contestTerm(contest, "team"),
+    trackWord: contestTerm(contest, "track"),
+    memberIdLabel: memberIdLabel(contest),
   };
 }
 
@@ -283,13 +289,57 @@ export async function dispatchRegistrationConfirmed(args: { contestId: string; u
   }
 }
 
+/** Team roster for the team email: name, track, leader and every member's roles. */
+async function loadTeamDetails(contestId: string, teamId: string): Promise<TeamDetails | null> {
+  const team = await db.query.teams.findFirst({
+    where: and(eq(teams.id, teamId), eq(teams.contestId, contestId)),
+    with: { trackRef: true },
+  });
+  if (!team) return null;
+  const rows = await db
+    .select({
+      userId: users.id,
+      name: users.name,
+      email: users.email,
+      participantRole: contestUsers.participantRole,
+      extraRoles: contestUsers.extraRoles,
+      memberIdentifier: contestUsers.memberIdentifier,
+      contestRole: contestUsers.role,
+    })
+    .from(contestUsers)
+    .innerJoin(users, eq(contestUsers.userId, users.id))
+    .where(and(eq(contestUsers.contestId, contestId), onTeam(teamId)));
+  const members = rows
+    .filter((r) => r.contestRole !== "mentor")
+    .map((r) => ({
+      name: r.name,
+      email: r.email,
+      isLeader: r.userId === team.leaderId,
+      roles: [
+        ...(r.participantRole ? [r.participantRole] : []),
+        ...(Array.isArray(r.extraRoles) ? (r.extraRoles as unknown[]).filter((x): x is string => typeof x === "string" && x !== r.participantRole) : []),
+      ],
+      memberIdentifier: r.memberIdentifier,
+    }))
+    .sort((a, b) => Number(b.isLeader) - Number(a.isLeader) || (a.name ?? a.email).localeCompare(b.name ?? b.email));
+  return { name: team.name, trackName: team.trackRef?.name ?? null, members };
+}
+
+/** Sign-in page for a contest, landing on its dashboard after login. */
+function signInUrlFor(actionUrl: string): string {
+  const u = new URL(actionUrl);
+  return `${u.origin}/login?callbackUrl=${encodeURIComponent(u.pathname)}`;
+}
+
 /**
  * Confirmation to a user who has just created a team (`created: true`) or
- * joined one via add-member / an accepted invitation or request.
+ * joined one via add-member / an accepted invitation or request. The email
+ * carries the full team (track, leader, members + roles) and how to sign in.
  */
 export async function dispatchTeamJoined(args: {
   contestId: string;
   userId: string;
+  teamId: string;
   teamName: string;
   created: boolean;
   addedByName?: string | null;
@@ -312,6 +362,10 @@ export async function dispatchTeamJoined(args: {
   });
 
   if (shouldEmail(user.notificationPrefs as Record<string, unknown> | null, "team_joined")) {
+    const team = await loadTeamDetails(args.contestId, args.teamId).catch((e) => {
+      console.warn("[notify] could not load team details for email:", e);
+      return null;
+    });
     const tpl = teamJoinedTemplate({
       recipientName: user.name,
       contestName: ctx.name,
@@ -319,9 +373,18 @@ export async function dispatchTeamJoined(args: {
       supportEmail: ctx.supportEmail,
       teamName: args.teamName,
       teamWord: ctx.teamWord,
+      trackWord: ctx.trackWord,
+      memberIdLabel: ctx.memberIdLabel,
       created: args.created,
       addedByName: args.addedByName,
       setPasswordUrl: args.setPasswordUrl,
+      team,
+      signIn: {
+        url: signInUrlFor(ctx.actionUrl),
+        email: user.email,
+        hasPassword: !!user.password,
+        googleSso: googleSsoEnabled(),
+      },
     } satisfies TeamJoinedCtx);
     await sendMail({ to: user.email, ...tpl }).catch((e) =>
       console.warn("[notify] team email failed for", user.email, e),
@@ -330,11 +393,13 @@ export async function dispatchTeamJoined(args: {
 }
 
 /**
- * Tell each teammate they were added by email. Brand-new accounts have no
- * password, so theirs carries a single-use link to set one.
+ * Tell each teammate they were added by email. Anyone without a password yet
+ * (brand-new account, or one that never set it) gets a single-use link to set
+ * one, valid for 7 days.
  */
 export async function dispatchMembersAdded(args: {
   contest: { id: string; slug: string; customDomain?: string | null; customDomainVerifiedAt?: Date | string | null };
+  teamId: string;
   teamName: string;
   addedByName?: string | null;
   added: { email: string; userId: string; created: boolean }[];
@@ -342,12 +407,16 @@ export async function dispatchMembersAdded(args: {
   const origin = new URL(contestBaseUrl(args.contest).base).origin;
   await Promise.all(
     args.added.map(async (member) => {
-      const issued = member.created
+      const needsPassword =
+        member.created ||
+        !(await db.query.users.findFirst({ where: eq(users.id, member.userId), columns: { password: true } }))?.password;
+      const issued = needsPassword
         ? await issueResetTokenForEmail(member.email, INVITE_TOKEN_TTL_MINUTES)
         : null;
       await dispatchTeamJoined({
         contestId: args.contest.id,
         userId: member.userId,
+        teamId: args.teamId,
         teamName: args.teamName,
         created: false,
         addedByName: args.addedByName,

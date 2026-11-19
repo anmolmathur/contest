@@ -63,7 +63,7 @@ export interface ContestPreset {
   submissionFields: SubmissionField[];
   scoringScale: ScoringScale;
   terminology: Terminology;
-  roleConfig: Array<{ role: string; maxPerTeam: number; minPerTeam?: number; description?: string }>;
+  roleConfig: Array<{ role: string; maxPerTeam: number; minPerTeam?: number; description?: string; summary?: string }>;
   prizes: Array<{ rank: number; label: string; amount: number | null; color: string }>;
   maxTeamMembers: number;
   maxTeams: number;

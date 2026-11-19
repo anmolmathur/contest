@@ -16,8 +16,10 @@ import { db } from "@/lib/db";
 import { contestUsers, teamMembers, users } from "@/lib/db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { userTypeForEmail } from "@/lib/user-type";
+import { parseMemberIdentifier } from "@/lib/member-identifier";
 
-export type MemberInput = { email: string; name: string };
+/** `memberIdentifier`: optional Enrollment Number / Employee ID for this contest. */
+export type MemberInput = { email: string; name: string; memberIdentifier?: string | null };
 
 export type MemberStatus =
   | { status: "new" }
@@ -51,7 +53,9 @@ export function parseMembers(raw: unknown): { members: MemberInput[]; error?: st
     if (members.some((m) => m.email === email)) {
       return { members: [], error: `${email} is listed more than once` };
     }
-    members.push({ email, name });
+    const id = parseMemberIdentifier(item?.memberIdentifier);
+    if (id.error) return { members: [], error: `${email}: ${id.error}` };
+    members.push({ email, name, memberIdentifier: id.value ?? null });
   }
   return { members };
 }
@@ -147,8 +151,21 @@ export async function addMember(
 
   await tx
     .insert(contestUsers)
-    .values({ contestId, userId: user.id, role: "participant" })
+    .values({ contestId, userId: user.id, role: "participant", memberIdentifier: member.memberIdentifier ?? null })
     .onConflictDoNothing();
+  // Already enrolled: fill in their ID only if they have none (a teammate never overwrites it).
+  if (member.memberIdentifier) {
+    await tx
+      .update(contestUsers)
+      .set({ memberIdentifier: member.memberIdentifier })
+      .where(
+        and(
+          eq(contestUsers.contestId, contestId),
+          eq(contestUsers.userId, user.id),
+          isNull(contestUsers.memberIdentifier),
+        ),
+      );
+  }
 
   if (multiTeam) {
     const cu = await tx.query.contestUsers.findFirst({

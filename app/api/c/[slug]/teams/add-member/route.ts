@@ -69,7 +69,7 @@ export async function POST(
     const multiTeam = allowsMultipleTeams(contest);
 
     if (byEmail) {
-      const { members, error: inputError } = parseMembers([{ email: body.email, name: body.name }]);
+      const { members, error: inputError } = parseMembers([{ email: body.email, name: body.name, memberIdentifier: body.memberIdentifier }]);
       if (inputError) {
         return NextResponse.json({ error: inputError }, { status: 400 });
       }
@@ -94,6 +94,7 @@ export async function POST(
       );
       dispatchMembersAdded({
         contest,
+        teamId,
         teamName: team.name,
         addedByName: session.user.name,
         added: [{ email: member.email, ...result }],
@@ -165,7 +166,7 @@ export async function POST(
         .where(eq(users.id, userId));
     });
 
-    dispatchTeamJoined({ contestId: contest.id, userId, teamName: team.name, created: false }).catch(() => {});
+    dispatchTeamJoined({ contestId: contest.id, userId, teamId, teamName: team.name, created: false }).catch(() => {});
 
     return NextResponse.json(
       { message: "Member added successfully" },

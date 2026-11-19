@@ -278,7 +278,7 @@ export default function ContestPage() {
                   <TrackCard
                     title={track.name}
                     description={track.description || ""}
-                    imageKeyword={track.name.toLowerCase().replace(/\s+/g, ",")}
+                    imageUrl={track.imageUrl}
                   />
                 </motion.div>
               ))}

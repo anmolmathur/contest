@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { contestUsers, contests, users } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveContest, canAdminContest } from "@/lib/contest-auth";
+import { parseMemberIdentifier } from "@/lib/member-identifier";
 
 // POST /api/c/[slug]/users/assign - Assign a user to a contest with a role (admin only)
 export async function POST(
@@ -30,6 +31,10 @@ export async function POST(
 
     const body = await req.json();
     const { userId, role, participantRole } = body;
+    const idInput = parseMemberIdentifier(body.memberIdentifier);
+    if (idInput.error) {
+      return NextResponse.json({ error: idInput.error }, { status: 400 });
+    }
 
     if (!userId || !role) {
       return NextResponse.json({ error: "userId and role are required" }, { status: 400 });
@@ -78,6 +83,7 @@ export async function POST(
                 ? participantRole
                 : null
               : null,
+      memberIdentifier: idInput.value ?? null,
     }).returning();
 
     return NextResponse.json(newContestUser, { status: 201 });

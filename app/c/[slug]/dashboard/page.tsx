@@ -18,6 +18,8 @@ import type { SubmissionValues } from "@/lib/contest-config";
 import Leaderboard from "@/components/Leaderboard";
 import MemberEmailRow, { type MemberRow } from "@/components/team/MemberEmailRow";
 import MemberRolePicker, { memberRoles } from "@/components/team/MemberRolePicker";
+import VideoEmbed from "@/components/team/VideoEmbed";
+import { roleSummary } from "@/lib/role-summary";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,10 +66,23 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-const EMPTY_MEMBER: MemberRow = { email: "", name: "" };
+const EMPTY_MEMBER: MemberRow = { email: "", name: "", memberIdentifier: "" };
 
 /** Rows carry a stable id, so removing one doesn't hand its lookup result to the next. */
 const firstMemberRow = () => [{ ...EMPTY_MEMBER, id: 0 }];
+
+/** One line under a role picker: what the chosen role does. */
+function RoleSummaryLine({
+  role,
+  options,
+}: {
+  role: string;
+  options: { role: string; summary?: string; description?: string }[];
+}) {
+  const o = options.find((x) => x.role === role);
+  const line = o ? roleSummary(o) : "";
+  return line ? <p className="mt-1 text-xs text-gray-400">{line}</p> : null;
+}
 
 interface Team {
   id: string;
@@ -92,6 +107,8 @@ interface TeamMember {
   extraRoles?: unknown;
   /** contest_users.role — "mentor" rows don't count toward team size */
   contestRole?: string | null;
+  /** Optional Enrollment Number / Employee ID */
+  memberIdentifier?: string | null;
 }
 
 type Submission = {
@@ -123,6 +140,8 @@ interface ContestMembership {
   role: string; // "admin" | "judge" | "participant" | "mentor"
   participantRole: string | null;
   teamId: string | null; // active team
+  /** Optional Enrollment Number / Employee ID for this contest */
+  memberIdentifier?: string | null;
 }
 
 /** A team I'm on (multi-team contests can have several). */
@@ -155,7 +174,7 @@ function valuesOf(sub: Submission): SubmissionValues {
 
 export default function ContestDashboardPage() {
   const { contest } = useContest();
-  const { t, tp, submissionFields, settings, contestType } = useContestConfig();
+  const { t, tp, submissionFields, settings, contestType, memberIdLabel, teamCreationVideoUrl } = useContestConfig();
   const isIdeathon = contestType === "ideathon";
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -212,11 +231,13 @@ export default function ContestDashboardPage() {
   const [teamName, setTeamName] = useState("");
   const [selectedTrackId, setSelectedTrackId] = useState("");
   const [createRole, setCreateRole] = useState("");
+  const [createMyId, setCreateMyId] = useState<string | null>(null); // null = untouched
   const [memberRows, setMemberRows] = useState(firstMemberRow);
 
   // Edit profile form
   const [profileForm, setProfileForm] = useState({ name: "", department: "" });
   const [profileRole, setProfileRole] = useState("");
+  const [profileMemberId, setProfileMemberId] = useState("");
 
   // Edit team form
   const [editTeamForm, setEditTeamForm] = useState({
@@ -299,6 +320,7 @@ export default function ContestDashboardPage() {
           role: data.role,
           participantRole: data.participantRole ?? null,
           teamId: data.teamId ?? null,
+          memberIdentifier: data.memberIdentifier ?? null,
         });
         return;
       }
@@ -556,6 +578,11 @@ export default function ContestDashboardPage() {
         const ok = await saveParticipantRole(createRole);
         if (!ok) return;
       }
+      // ...and their own Enrollment Number / Employee ID, if they typed one.
+      if (createMyId !== null && createMyId.trim() !== (contestMembership?.memberIdentifier ?? "")) {
+        const ok = await saveMemberIdentifier(createMyId);
+        if (!ok) return;
+      }
 
       const res = await fetch(`${apiBase}/teams/create`, {
         method: "POST",
@@ -565,7 +592,11 @@ export default function ContestDashboardPage() {
           trackId: hasTracks ? selectedTrackId : undefined,
           members: memberRows
             .filter((m) => m.email.trim())
-            .map(({ email, name }) => ({ email, name })),
+            .map(({ email, name, memberIdentifier }) => ({
+              email,
+              name,
+              memberIdentifier: memberIdentifier?.trim() || undefined,
+            })),
         }),
       });
 
@@ -585,6 +616,7 @@ export default function ContestDashboardPage() {
       setTeamName("");
       setSelectedTrackId("");
       setCreateRole("");
+      setCreateMyId(null);
       setMemberRows(firstMemberRow());
 
       // Reload everything
@@ -807,6 +839,29 @@ export default function ContestDashboardPage() {
     }
   };
 
+  /** PUT users/me { memberIdentifier } — returns true on success. */
+  const saveMemberIdentifier = async (value: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiBase}/users/me`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberIdentifier: value.trim() || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `Failed to save your ${memberIdLabel}`);
+        return false;
+      }
+      setContestMembership((prev) =>
+        prev ? { ...prev, memberIdentifier: data.memberIdentifier ?? null } : prev
+      );
+      return true;
+    } catch {
+      setError(`Failed to save your ${memberIdLabel}`);
+      return false;
+    }
+  };
+
   const handleOpenEditProfile = async () => {
     // Pre-load current profile data so existing values are visible
     setProfileForm({
@@ -814,6 +869,7 @@ export default function ContestDashboardPage() {
       department: "",
     });
     setProfileRole(contestMembership?.participantRole ?? "");
+    setProfileMemberId(contestMembership?.memberIdentifier ?? "");
     setEditProfileOpen(true);
 
     try {
@@ -853,6 +909,12 @@ export default function ContestDashboardPage() {
         profileRole !== (contestMembership?.participantRole ?? "")
       ) {
         const ok = await saveParticipantRole(profileRole);
+        if (!ok) return;
+        if (team) await loadTeamData(team.id);
+      }
+
+      if (contestMembership?.id && profileMemberId.trim() !== (contestMembership.memberIdentifier ?? "")) {
+        const ok = await saveMemberIdentifier(profileMemberId);
         if (!ok) return;
         if (team) await loadTeamData(team.id);
       }
@@ -1129,6 +1191,24 @@ export default function ContestDashboardPage() {
                     className="bg-white/5 border-white/10 text-white"
                   />
                 </div>
+                {contestMembership?.id && (
+                  <div>
+                    <Label htmlFor="profileMemberId" className="text-gray-200">
+                      {memberIdLabel} <span className="text-gray-500 font-normal">(optional)</span>
+                    </Label>
+                    <Input
+                      id="profileMemberId"
+                      value={profileMemberId}
+                      onChange={(e) => setProfileMemberId(e.target.value)}
+                      maxLength={100}
+                      placeholder={`Enter your ${memberIdLabel}`}
+                      className="bg-white/5 border-white/10 text-white"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Helps the organisers identify you. Only they and your {t("team").toLowerCase()} see it.
+                    </p>
+                  </div>
+                )}
                 {isParticipant && roleOptions.length > 0 && (
                   <div>
                     <Label htmlFor="profileRole" className="text-gray-200">
@@ -1143,13 +1223,14 @@ export default function ContestDashboardPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {roleOptions.map((r) => (
-                          <SelectItem key={r.role} value={r.role}>
+                          <SelectItem key={r.role} value={r.role} hint={roleSummary(r) || undefined}>
                             {r.role}
                             {r.maxPerTeam ? ` (max ${r.maxPerTeam} per ${t("team").toLowerCase()})` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <RoleSummaryLine role={profileRole} options={roleOptions} />
                   </div>
                 )}
                 <Button
@@ -1241,6 +1322,17 @@ export default function ContestDashboardPage() {
                               </DialogTitle>
                             </DialogHeader>
                             <div className="space-y-4 mt-4">
+                              {teamCreationVideoUrl && (
+                                <div className="space-y-2">
+                                  <p className="text-sm text-gray-300">
+                                    New here? Watch this short walkthrough on creating your {t("team").toLowerCase()}.
+                                  </p>
+                                  <VideoEmbed
+                                    url={teamCreationVideoUrl}
+                                    title={`How to create your ${t("team").toLowerCase()}`}
+                                  />
+                                </div>
+                              )}
                               <div>
                                 <Label
                                   htmlFor="teamName"
@@ -1324,12 +1416,32 @@ export default function ContestDashboardPage() {
                                     </SelectTrigger>
                                     <SelectContent>
                                       {roleOptions.map((r) => (
-                                        <SelectItem key={r.role} value={r.role}>
+                                        <SelectItem key={r.role} value={r.role} hint={roleSummary(r) || undefined}>
                                           {r.role}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                  <RoleSummaryLine
+                                    role={createRole || contestMembership?.participantRole || ""}
+                                    options={roleOptions}
+                                  />
+                                </div>
+                              )}
+                              {isParticipant && (
+                                <div>
+                                  <Label htmlFor="createMyId" className="text-gray-200">
+                                    Your {memberIdLabel}{" "}
+                                    <span className="text-gray-500 font-normal">(optional)</span>
+                                  </Label>
+                                  <Input
+                                    id="createMyId"
+                                    value={createMyId ?? contestMembership?.memberIdentifier ?? ""}
+                                    onChange={(e) => setCreateMyId(e.target.value)}
+                                    maxLength={100}
+                                    placeholder={`Enter your ${memberIdLabel}`}
+                                    className="bg-white/5 border-white/10 text-white"
+                                  />
                                 </div>
                               )}
                               {contest.maxTeamMembers > 1 && (
@@ -1346,6 +1458,7 @@ export default function ContestDashboardPage() {
                                       key={row.id}
                                       apiBase={apiBase}
                                       teamWord={t("team")}
+                                      idLabel={memberIdLabel}
                                       value={row}
                                       onChange={(next) =>
                                         setMemberRows((rows) =>
@@ -1537,6 +1650,11 @@ export default function ContestDashboardPage() {
                           <p className="text-xs text-gray-500">
                             {member.email}
                           </p>
+                          {member.memberIdentifier && (
+                            <p className="text-xs text-gray-500">
+                              {memberIdLabel}: {member.memberIdentifier}
+                            </p>
+                          )}
                           {member.department && (
                             <p className="text-xs text-gray-500">
                               {member.department}
@@ -1616,6 +1734,7 @@ export default function ContestDashboardPage() {
                 <MemberEmailRow
                   apiBase={apiBase}
                   teamWord={t("team")}
+                  idLabel={memberIdLabel}
                   teamId={team?.id}
                   value={newMember}
                   onChange={setNewMember}

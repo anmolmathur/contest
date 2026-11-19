@@ -18,6 +18,7 @@ export default function RegisterPage() {
     password: "",
     confirmPassword: "",
     department: "",
+    memberIdentifier: "",
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -47,6 +48,8 @@ export default function RegisterPage() {
           email: formData.email,
           password: formData.password,
           department: formData.department,
+          memberIdentifier: formData.memberIdentifier.trim() || undefined,
+          callbackUrl: new URLSearchParams(window.location.search).get("callbackUrl") ?? undefined,
         }),
       });
 
@@ -129,6 +132,26 @@ export default function RegisterPage() {
                 required
                 className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-neon-purple focus:ring-neon-purple"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="memberIdentifier" className="text-gray-200">
+                Enrollment Number / Employee ID <span className="text-gray-500">(optional)</span>
+              </Label>
+              <Input
+                id="memberIdentifier"
+                type="text"
+                maxLength={100}
+                placeholder="e.g. your university enrollment number"
+                value={formData.memberIdentifier}
+                onChange={(e) =>
+                  setFormData({ ...formData, memberIdentifier: e.target.value })
+                }
+                className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-neon-purple focus:ring-neon-purple"
+              />
+              <p className="text-xs text-gray-500">
+                Helps the organisers identify you. You can add or change it later from your dashboard.
+              </p>
             </div>
 
             <div className="space-y-2">

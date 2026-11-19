@@ -185,6 +185,13 @@ export interface ContestSettings {
   impactMetricsEnabled?: boolean;
   /** Show a "demo data" banner on every page. */
   demoBanner?: boolean;
+  /**
+   * Walkthrough video shown in the "Create team" dialog (Vimeo/YouTube/MP4 URL).
+   * Unset → default for the contest type; "" → no video.
+   */
+  teamCreationVideoUrl?: string;
+  /** Label for the optional per-person ID (e.g. "Enrollment Number", "Employee ID"). Unset → by contest type. */
+  memberIdLabel?: string;
 }
 
 export function resolveSettings(raw: unknown): ContestSettings {
@@ -204,7 +211,20 @@ export function resolveSettings(raw: unknown): ContestSettings {
     solutionPaths: Array.isArray(s.solutionPaths) ? s.solutionPaths.filter((d) => typeof d === "string" && d.trim()) : undefined,
     impactMetricsEnabled: !!s.impactMetricsEnabled,
     demoBanner: !!s.demoBanner,
+    // "" is kept on purpose: it means "no video" and overrides the type default (see teamCreationVideo()).
+    teamCreationVideoUrl: typeof s.teamCreationVideoUrl === "string" ? s.teamCreationVideoUrl.trim() : undefined,
+    memberIdLabel: typeof s.memberIdLabel === "string" && s.memberIdLabel.trim() ? s.memberIdLabel.trim().slice(0, 60) : undefined,
   };
+}
+
+/** Default "how to create your team" walkthrough for business symposiums. */
+export const DEFAULT_SYMPOSIUM_TEAM_VIDEO = "https://player.vimeo.com/video/1247499964";
+
+/** The video to show when creating a team, or null for none. */
+export function teamCreationVideo(contest: { contestType?: string | null; settings?: unknown }): string | null {
+  const v = resolveSettings(contest.settings).teamCreationVideoUrl;
+  if (v !== undefined) return v || null;
+  return contest.contestType === "business_symposium" ? DEFAULT_SYMPOSIUM_TEAM_VIDEO : null;
 }
 
 /** Can a team see jury feedback right now? */

@@ -8,6 +8,7 @@ import Link from "next/link";
 import BackgroundPattern from "@/components/BackgroundPattern";
 import GlowButton from "@/components/GlowButton";
 import GlassCard from "@/components/GlassCard";
+import { roleSummary } from "@/lib/role-summary";
 import {
   Target,
   Users,
@@ -226,19 +227,28 @@ export default function ContestRulesPage() {
                 {hasRoleConfig && (
                   <div>
                     <h3 className="text-2xl font-bold text-white mb-4">
-                      Role Limits Per Team
+                      Team Roles
                     </h3>
+                    <p className="-mt-2 mb-4 text-sm text-gray-400">
+                      What each role does. The number is the maximum per team.
+                    </p>
                     <div className="bg-white/5 border border-white/20 rounded-lg p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         {contest.roleConfig!.map((rc, index) => (
                           <div
                             key={index}
-                            className="flex items-center justify-between bg-white/5 rounded-lg p-4"
+                            className="flex items-start justify-between gap-4 bg-white/5 rounded-lg p-4"
                           >
-                            <span className="text-white font-semibold">
-                              {rc.role}
-                            </span>
-                            <span className="text-2xl font-bold text-electric-blue">
+                            <div className="min-w-0">
+                              <p className="text-white font-semibold">{rc.role}</p>
+                              {roleSummary(rc) && (
+                                <p className="mt-1 text-sm text-gray-400">{roleSummary(rc)}</p>
+                              )}
+                            </div>
+                            <span
+                              className="shrink-0 text-2xl font-bold text-electric-blue"
+                              title={`Max ${rc.maxPerTeam} per team`}
+                            >
                               {rc.maxPerTeam}
                             </span>
                           </div>

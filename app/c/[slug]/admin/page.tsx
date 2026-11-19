@@ -8,6 +8,8 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { TeamMentorPanel } from "@/components/TeamMentorPanel";
 import { AdminCreateTeamButton, AdminTeamEditor } from "@/components/admin/AdminTeamTools";
+import TrackArt from "@/components/TrackArt";
+import { roleSummary } from "@/lib/role-summary";
 import GlowButton from "@/components/GlowButton";
 import GlassCard from "@/components/GlassCard";
 import BackgroundPattern from "@/components/BackgroundPattern";
@@ -103,6 +105,7 @@ interface ContestUserEntry {
   role: string;
   participantRole: string | null;
   teamId: string | null;
+  memberIdentifier?: string | null;
   createdAt: string | null;
   user: {
     id: string;
@@ -147,6 +150,7 @@ interface Track {
   name: string;
   description: string | null;
   icon: string | null;
+  imageUrl?: string | null;
   sortOrder: number;
 }
 
@@ -209,7 +213,7 @@ const TAB_IDS: TabType[] = ["summary", "users", "judges", "tracks", "teams", "su
 
 export default function ContestAdminPage() {
   const { contest } = useContest();
-  const { t, tp, submissionFields: resolvedFields } = useContestConfig();
+  const { t, tp, submissionFields: resolvedFields, memberIdLabel } = useContestConfig();
   const { data: session, status } = useSession();
   const router = useRouter();
   const isPlatformAdminViewer = session?.user?.globalRole === "platform_admin";
@@ -240,16 +244,18 @@ export default function ContestAdminPage() {
   const [addUserSearch, setAddUserSearch] = useState("");
   const [addUserRole, setAddUserRole] = useState("participant");
   const [addUserParticipantRole, setAddUserParticipantRole] = useState("");
+  const [addUserMemberId, setAddUserMemberId] = useState("");
   const [selectedPlatformUser, setSelectedPlatformUser] = useState<PlatformUser | null>(null);
 
   const [editRoleOpen, setEditRoleOpen] = useState(false);
   const [editRoleUser, setEditRoleUser] = useState<ContestUserEntry | null>(null);
   const [editRoleValue, setEditRoleValue] = useState("");
+  const [editMemberId, setEditMemberId] = useState("");
   const [editParticipantRole, setEditParticipantRole] = useState("");
 
   const [trackDialogOpen, setTrackDialogOpen] = useState(false);
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
-  const [trackForm, setTrackForm] = useState({ name: "", description: "", icon: "" });
+  const [trackForm, setTrackForm] = useState({ name: "", description: "", icon: "", imageUrl: "" });
 
   const [viewSubmissionOpen, setViewSubmissionOpen] = useState(false);
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
@@ -474,6 +480,7 @@ export default function ContestAdminPage() {
           userId: selectedPlatformUser.id,
           role: addUserRole,
           participantRole: addUserRole === "participant" || addUserRole === "validator" ? addUserParticipantRole : undefined,
+          memberIdentifier: addUserMemberId.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -483,6 +490,7 @@ export default function ContestAdminPage() {
       }
       setSuccess(`${selectedPlatformUser.name || selectedPlatformUser.email} added to contest`);
       setAddUserOpen(false);
+      setAddUserMemberId("");
       setSelectedPlatformUser(null);
       setAddUserSearch("");
       loadContestUsers();
@@ -499,7 +507,11 @@ export default function ContestAdminPage() {
       const res = await fetch(`/api/c/${slug}/users/${editRoleUser.id}/role`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: editRoleValue, participantRole: editRoleValue === "participant" || editRoleValue === "validator" ? editParticipantRole : undefined }),
+        body: JSON.stringify({
+          role: editRoleValue,
+          participantRole: editRoleValue === "participant" || editRoleValue === "validator" ? editParticipantRole : undefined,
+          memberIdentifier: editMemberId.trim() || null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -540,7 +552,7 @@ export default function ContestAdminPage() {
   // -----------------------------------------------------------------------
   const openCreateTrack = () => {
     setEditingTrack(null);
-    setTrackForm({ name: "", description: "", icon: "" });
+    setTrackForm({ name: "", description: "", icon: "", imageUrl: "" });
     setTrackDialogOpen(true);
   };
 
@@ -550,6 +562,7 @@ export default function ContestAdminPage() {
       name: track.name,
       description: track.description || "",
       icon: track.icon || "",
+      imageUrl: track.imageUrl || "",
     });
     setTrackDialogOpen(true);
   };
@@ -1213,6 +1226,7 @@ export default function ContestAdminPage() {
                       <TableHead className="text-gray-400">Email</TableHead>
                       <TableHead className="text-gray-400">Contest Role</TableHead>
                       <TableHead className="text-gray-400">Participant Role</TableHead>
+                      <TableHead className="text-gray-400">{memberIdLabel}</TableHead>
                       <TableHead className="text-gray-400 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1232,10 +1246,11 @@ export default function ContestAdminPage() {
                           </span>
                         </TableCell>
                         <TableCell className="text-gray-400">{cu.participantRole || "-"}</TableCell>
+                        <TableCell className="text-gray-400">{cu.memberIdentifier || "-"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
                             <Button
-                              onClick={() => { setEditRoleUser(cu); setEditRoleValue(cu.role); setEditParticipantRole(cu.participantRole || ""); setEditRoleOpen(true); }}
+                              onClick={() => { setEditRoleUser(cu); setEditRoleValue(cu.role); setEditParticipantRole(cu.participantRole || ""); setEditMemberId(cu.memberIdentifier || ""); setEditRoleOpen(true); }}
                               variant="ghost" size="sm"
                               className="text-electric-blue hover:text-electric-blue hover:bg-electric-blue/10"
                             >
@@ -1391,6 +1406,7 @@ export default function ContestAdminPage() {
                     trackWord={t("track")}
                     maxMembers={contest.maxTeamMembers}
                     onCreated={loadTeams}
+                    idLabel={memberIdLabel}
                   />
                 </div>
               </div>
@@ -1993,7 +2009,11 @@ export default function ContestAdminPage() {
                         </div>
                       </div>
                       <div className="mt-3">
-                        <Label className="text-gray-300 text-xs">What this role does (shown to participants)</Label>
+                        <Label className="text-gray-300 text-xs">One-line summary (shown next to the role everywhere)</Label>
+                        <Input value={rc.summary ?? ""} onChange={(e) => updateRoleConfig(index, "summary", e.target.value)} maxLength={140} placeholder={roleSummary({ role: rc.role, description: rc.description }) || "e.g. Builds the working prototype"} className="bg-white/5 border-white/10 text-white text-sm" />
+                      </div>
+                      <div className="mt-3">
+                        <Label className="text-gray-300 text-xs">Full description (optional, longer)</Label>
                         <Input value={rc.description ?? ""} onChange={(e) => updateRoleConfig(index, "description", e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" />
                       </div>
                     </div>
@@ -2014,6 +2034,7 @@ export default function ContestAdminPage() {
                 onVisibilityChange={(visibility) => patchExt({ visibility })}
                 supportEmail={extForm.supportEmail}
                 onSupportEmailChange={(supportEmail) => patchExt({ supportEmail })}
+                contestType={extForm.contestType}
                 trackTerm={t("track")}
                 judgeTerm={t("judge")}
               />
@@ -2140,6 +2161,10 @@ export default function ContestAdminPage() {
                 </Select>
               </div>
             )}
+            <div>
+              <Label className="text-gray-200">{memberIdLabel} <span className="text-gray-500 font-normal">(optional)</span></Label>
+              <Input value={addUserMemberId} onChange={(e) => setAddUserMemberId(e.target.value)} maxLength={100} className="bg-white/5 border-white/10 text-white" />
+            </div>
             <Button onClick={handleAddUserToContest} className="w-full bg-gradient-to-r from-neon-purple to-electric-blue">
               Add User to Contest
             </Button>
@@ -2195,8 +2220,12 @@ export default function ContestAdminPage() {
                   </Select>
                 </div>
               )}
+              <div>
+                <Label className="text-gray-200">{memberIdLabel} <span className="text-gray-500 font-normal">(optional)</span></Label>
+                <Input value={editMemberId} onChange={(e) => setEditMemberId(e.target.value)} maxLength={100} placeholder={`e.g. their ${memberIdLabel}`} className="bg-white/5 border-white/10 text-white" />
+              </div>
               <Button onClick={handleChangeRole} className="w-full bg-gradient-to-r from-neon-purple to-electric-blue">
-                Update Role
+                Save Changes
               </Button>
             </div>
           )}
@@ -2223,6 +2252,19 @@ export default function ContestAdminPage() {
             <div>
               <Label className="text-gray-200">Icon (emoji or icon name)</Label>
               <Input value={trackForm.icon} onChange={(e) => setTrackForm({ ...trackForm, icon: e.target.value })} placeholder="e.g. brain" className="bg-white/5 border-white/10 text-white" />
+            </div>
+            <div>
+              <Label className="text-gray-200">Cover image URL <span className="text-gray-500 font-normal">(optional)</span></Label>
+              <Input value={trackForm.imageUrl} onChange={(e) => setTrackForm({ ...trackForm, imageUrl: e.target.value })} placeholder="https://… (leave blank for artwork matched to the theme)" className="bg-white/5 border-white/10 text-white" />
+              <div className="mt-2 h-28 overflow-hidden rounded-lg border border-white/10">
+                {/^(https?:\/\/|\/)/.test(trackForm.imageUrl.trim()) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={trackForm.imageUrl.trim()} alt="Cover preview" className="h-full w-full object-cover" />
+                ) : (
+                  <TrackArt name={trackForm.name || "Track"} description={trackForm.description} />
+                )}
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500">Preview of the card image on the landing page.</p>
             </div>
             <Button onClick={handleSaveTrack} className="w-full bg-gradient-to-r from-neon-purple to-electric-blue">
               {editingTrack ? "Save Changes" : `Create ${t("track")}`}

@@ -127,40 +127,145 @@ export function registrationConfirmedTemplate(ctx: RegistrationConfirmedCtx) {
   };
 }
 
+export type TeamDetails = {
+  name: string;
+  trackName: string | null;
+  members: {
+    name: string | null;
+    email: string;
+    isLeader: boolean;
+    roles: string[];
+    memberIdentifier: string | null;
+  }[];
+};
+
 export type TeamJoinedCtx = BaseCtx & {
   teamName: string;
   teamWord: string;
+  trackWord?: string;
+  /** Label of the optional per-person ID (Enrollment Number, Employee ID). */
+  memberIdLabel?: string;
   created: boolean;
   /** Set when a teammate put this person on the team. */
   addedByName?: string | null;
-  /** Set for a brand-new account, which has no password yet. */
+  /** Set for an account with no password yet: single-use link to choose one. */
   setPasswordUrl?: string;
+  /** Full roster; omitted if it could not be loaded (the email still goes out). */
+  team?: TeamDetails | null;
+  signIn?: { url: string; email: string; hasPassword: boolean; googleSso: boolean };
 };
+
+const cell = "padding:6px 8px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;vertical-align:top;";
+const head = "padding:6px 8px;border-bottom:2px solid #cbd5e1;font-size:12px;color:#475569;text-align:left;";
+
+function teamDetailsHtml(ctx: TeamJoinedCtx): string {
+  const team = ctx.team;
+  if (!team) return "";
+  const trackWord = ctx.trackWord ?? "Track";
+  const idLabel = ctx.memberIdLabel ?? "ID";
+  const showId = team.members.some((m) => m.memberIdentifier);
+  const rows = team.members
+    .map(
+      (m) => `<tr>
+        <td style="${cell}"><b>${escapeHtml(m.name || m.email)}</b>${m.isLeader ? ' <span style="color:#7c3aed;font-size:11px;">(Leader)</span>' : ""}<br/><span style="color:#64748b;font-size:12px;">${escapeHtml(m.email)}</span></td>
+        <td style="${cell}">${m.roles.length ? escapeHtml(m.roles.join(", ")) : '<span style="color:#94a3b8;">Not chosen yet</span>'}</td>
+        ${showId ? `<td style="${cell}">${m.memberIdentifier ? escapeHtml(m.memberIdentifier) : "—"}</td>` : ""}
+      </tr>`,
+    )
+    .join("");
+  return `
+    <h2 style="margin:24px 0 8px 0;font-size:16px;color:#0f172a;">Your ${escapeHtml(ctx.teamWord.toLowerCase())}</h2>
+    <table role="presentation" style="border-collapse:collapse;font-size:13px;margin-bottom:8px;">
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b;">${escapeHtml(ctx.teamWord)} name</td><td style="padding:2px 0;"><b>${escapeHtml(team.name)}</b></td></tr>
+      ${team.trackName ? `<tr><td style="padding:2px 12px 2px 0;color:#64748b;">${escapeHtml(trackWord)}</td><td style="padding:2px 0;">${escapeHtml(team.trackName)}</td></tr>` : ""}
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b;">Members</td><td style="padding:2px 0;">${team.members.length}</td></tr>
+    </table>
+    <table role="presentation" style="width:100%;border-collapse:collapse;">
+      <tr><th style="${head}">Member</th><th style="${head}">Role</th>${showId ? `<th style="${head}">${escapeHtml(idLabel)}</th>` : ""}</tr>
+      ${rows}
+    </table>`;
+}
+
+function signInHtml(ctx: TeamJoinedCtx): string {
+  const si = ctx.signIn;
+  if (!si) return "";
+  let how: string;
+  if (ctx.setPasswordUrl) {
+    how = `<p style="margin:8px 0;"><b>First, set your password:</b> <a href="${escapeHtml(ctx.setPasswordUrl)}">Set your password</a>. This link works once and for 7 days; after that, use "Forgot password" on the sign-in page.</p>`;
+  } else if (si.hasPassword) {
+    how = `<p style="margin:8px 0;">Use your existing password. Forgot it? Use "Forgot password" on the sign-in page.</p>`;
+  } else {
+    how = `<p style="margin:8px 0;">You have not set a password yet. Use "Forgot password" on the sign-in page to choose one${si.googleSso ? ", or sign in with Google if this is a Google account" : ""}.</p>`;
+  }
+  return `
+    <div style="margin:24px 0 0 0;padding:14px 16px;background:#f1f5f9;border-radius:8px;">
+      <h2 style="margin:0 0 8px 0;font-size:16px;color:#0f172a;">How to sign in</h2>
+      <p style="margin:4px 0;">Sign-in page: <a href="${escapeHtml(si.url)}">${escapeHtml(si.url)}</a></p>
+      <p style="margin:4px 0;">Email (your username): <b>${escapeHtml(si.email)}</b></p>
+      ${how}
+    </div>`;
+}
+
+function teamDetailsText(ctx: TeamJoinedCtx): string {
+  const team = ctx.team;
+  if (!team) return "";
+  const idLabel = ctx.memberIdLabel ?? "ID";
+  const lines = [
+    "",
+    `Your ${ctx.teamWord.toLowerCase()}: ${team.name}`,
+    ...(team.trackName ? [`${ctx.trackWord ?? "Track"}: ${team.trackName}`] : []),
+    `Members (${team.members.length}):`,
+    ...team.members.map(
+      (m) =>
+        `- ${m.name || m.email}${m.isLeader ? " (Leader)" : ""} <${m.email}> | Role: ${m.roles.join(", ") || "not chosen yet"}${m.memberIdentifier ? ` | ${idLabel}: ${m.memberIdentifier}` : ""}`,
+    ),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function signInText(ctx: TeamJoinedCtx): string {
+  const si = ctx.signIn;
+  if (!si) return "";
+  const how = ctx.setPasswordUrl
+    ? `Set your password first (link works once, for 7 days): ${ctx.setPasswordUrl}`
+    : si.hasPassword
+      ? `Use your existing password (or "Forgot password" on the sign-in page).`
+      : `No password yet: use "Forgot password" on the sign-in page to choose one${si.googleSso ? ", or sign in with Google" : ""}.`;
+  return `\nHow to sign in\nSign-in page: ${si.url}\nEmail (your username): ${si.email}\n${how}\n`;
+}
+
 export function teamJoinedTemplate(ctx: TeamJoinedCtx) {
   const team = ctx.teamWord.toLowerCase();
   const line = ctx.created
-    ? `Your ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> has been created in ${escapeHtml(ctx.contestName)}. You are its leader and can now invite members.`
+    ? `Your ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> has been created in ${escapeHtml(ctx.contestName)}. You are its leader and can now add members.`
     : ctx.addedByName
       ? `${escapeHtml(ctx.addedByName)} added you to the ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> in ${escapeHtml(ctx.contestName)}.`
       : `You've joined the ${escapeHtml(team)} <b>${escapeHtml(ctx.teamName)}</b> in ${escapeHtml(ctx.contestName)}.`;
-  const addedLine = ctx.addedByName
-    ? `${ctx.addedByName} added you to the ${team} "${ctx.teamName}" in ${ctx.contestName}.`
-    : `You've joined the ${team} "${ctx.teamName}" in ${ctx.contestName}.`;
-  const setPassword = ctx.setPasswordUrl
-    ? `<p>An account has been created for you. <a href="${escapeHtml(ctx.setPasswordUrl)}">Set your password</a> to sign in. This link works for 7 days; after that, use "Forgot password" on the sign-in page.</p>`
-    : "";
+  const firstLine = ctx.created
+    ? `Your ${team} "${ctx.teamName}" has been created in ${ctx.contestName}. You are its leader.`
+    : ctx.addedByName
+      ? `${ctx.addedByName} added you to the ${team} "${ctx.teamName}" in ${ctx.contestName}.`
+      : `You've joined the ${team} "${ctx.teamName}" in ${ctx.contestName}.`;
+  // Without sign-in details (legacy callers) keep the old set-password paragraph.
+  const legacySetPassword =
+    !ctx.signIn && ctx.setPasswordUrl
+      ? `<p>An account has been created for you. <a href="${escapeHtml(ctx.setPasswordUrl)}">Set your password</a> to sign in. This link works for 7 days; after that, use "Forgot password" on the sign-in page.</p>`
+      : "";
   return {
     subject: ctx.created
       ? `[${ctx.contestName}] ${ctx.teamWord} "${ctx.teamName}" created`
       : `[${ctx.contestName}] You've joined "${ctx.teamName}"`,
     html: wrap(
       ctx.created ? `${ctx.teamWord} registered` : `You've joined a ${team}`,
-      `<p>Hi ${escapeHtml(ctx.recipientName ?? "there")},</p><p>${line}</p>${setPassword}`,
+      `<p>Hi ${escapeHtml(ctx.recipientName ?? "there")},</p><p>${line}</p>${legacySetPassword}${teamDetailsHtml(ctx)}${signInHtml(ctx)}`,
       ctx
     ),
-    text: ctx.created
-      ? `Your ${team} "${ctx.teamName}" has been created in ${ctx.contestName}. You are its leader.\n${ctx.actionUrl ?? ""}`
-      : `${addedLine}\n${ctx.setPasswordUrl ? `Set your password (link works for 7 days): ${ctx.setPasswordUrl}\n` : ""}${ctx.actionUrl ?? ""}`,
+    text:
+      `${firstLine}\n` +
+      teamDetailsText(ctx) +
+      signInText(ctx) +
+      (!ctx.signIn && ctx.setPasswordUrl ? `Set your password (link works for 7 days): ${ctx.setPasswordUrl}\n` : "") +
+      `\n${ctx.actionUrl ?? ""}`,
   };
 }
 

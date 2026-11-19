@@ -17,6 +17,8 @@ export interface RoleCap {
   /** Ideathon: every role with minPerTeam ≥ 1 must be covered before submitting. */
   minPerTeam?: number;
   description?: string;
+  /** One-line "what this role does" (lib/role-summary.ts). */
+  summary?: string;
 }
 
 export function roleConfigOf(raw: unknown): RoleCap[] {

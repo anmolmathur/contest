@@ -133,6 +133,7 @@ export async function PATCH(
     dispatchTeamJoined({
       contestId: contest.id,
       userId: joinerUserId,
+      teamId: inv.teamId,
       teamName: team.name,
       created: false,
     }).catch(() => {});

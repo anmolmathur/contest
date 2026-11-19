@@ -9,11 +9,13 @@
 import { useState } from "react";
 import { Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { roleSummary } from "@/lib/role-summary";
 
 export interface RoleOption {
   role: string;
   maxPerTeam?: number;
   description?: string;
+  summary?: string;
 }
 
 export function memberRoles(m: { participantRole?: string | null; extraRoles?: unknown }): string[] {
@@ -117,7 +119,7 @@ export default function MemberRolePicker({
             <button
               key={o.role}
               type="button"
-              title={o.description || undefined}
+              title={roleSummary(o) || undefined}
               aria-label={o.role}
               aria-pressed={on}
               onClick={() => toggle(o.role)}
@@ -132,6 +134,19 @@ export default function MemberRolePicker({
           );
         })}
       </div>
+      {picked.length > 0 && (
+        <ul className="space-y-0.5">
+          {picked.map((r) => {
+            const o = options.find((x) => x.role === r);
+            const line = o ? roleSummary(o) : "";
+            return line ? (
+              <li key={r} className="text-[11px] text-gray-400">
+                <span className="text-gray-200">{r}:</span> {line}
+              </li>
+            ) : null;
+          })}
+        </ul>
+      )}
       {error && <p className="text-xs text-red-400">{error}</p>}
       <div className="flex gap-2">
         <Button size="sm" disabled={busy} onClick={save} className="h-7 bg-gradient-to-r from-neon-purple to-electric-blue">

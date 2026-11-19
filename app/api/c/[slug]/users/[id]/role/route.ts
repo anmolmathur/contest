@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contestUsers, contests, users } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { parseMemberIdentifier } from "@/lib/member-identifier";
 import { resolveContest, canAdminContest } from "@/lib/contest-auth";
 
 // PUT /api/c/[slug]/users/[id]/role - Change a user's contest role (admin only)
@@ -31,6 +32,10 @@ export async function PUT(
 
     const body = await req.json();
     const { role, participantRole } = body;
+    const idInput = parseMemberIdentifier(body.memberIdentifier);
+    if (idInput.error) {
+      return NextResponse.json({ error: idInput.error }, { status: 400 });
+    }
 
     if (!role) {
       return NextResponse.json({ error: "role is required" }, { status: 400 });
@@ -77,6 +82,7 @@ export async function PUT(
                 ? participantRole
                 : null
               : null,
+        ...(idInput.value !== undefined ? { memberIdentifier: idInput.value } : {}),
       })
       .where(
         and(

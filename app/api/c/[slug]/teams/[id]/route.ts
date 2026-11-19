@@ -48,6 +48,7 @@ export async function GET(
         participantRole: contestUsers.participantRole,
         extraRoles: contestUsers.extraRoles,
         contestRole: contestUsers.role,
+        memberIdentifier: contestUsers.memberIdentifier,
       })
       .from(contestUsers)
       .innerJoin(users, eq(contestUsers.userId, users.id))

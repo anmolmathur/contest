@@ -68,6 +68,7 @@ export function AdminCreateTeamButton({
   trackWord,
   maxMembers,
   onCreated,
+  idLabel,
 }: {
   slug: string;
   tracks: AdminTeamTrack[];
@@ -75,6 +76,8 @@ export function AdminCreateTeamButton({
   trackWord: string;
   maxMembers: number;
   onCreated: () => void;
+  /** Label of the optional per-person ID (Enrollment Number, Employee ID). */
+  idLabel?: string;
 }) {
   const apiBase = `/api/c/${slug}`;
   const [open, setOpen] = useState(false);
@@ -102,8 +105,14 @@ export function AdminCreateTeamButton({
     const err = await postJson(`${apiBase}/teams/create`, "POST", {
       name: name.trim(),
       trackId: tracks.length > 0 ? trackId : undefined,
-      leader: { email: leader.email.trim(), name: leader.name.trim() },
-      members: rows.filter((r) => r.email.trim()).map(({ email, name: n }) => ({ email: email.trim(), name: n.trim() })),
+      leader: { email: leader.email.trim(), name: leader.name.trim(), memberIdentifier: leader.memberIdentifier?.trim() || undefined },
+      members: rows
+        .filter((r) => r.email.trim())
+        .map(({ email, name: n, memberIdentifier }) => ({
+          email: email.trim(),
+          name: n.trim(),
+          memberIdentifier: memberIdentifier?.trim() || undefined,
+        })),
     });
     setBusy(false);
     if (err) return setError(err);
@@ -152,7 +161,7 @@ export function AdminCreateTeamButton({
             )}
             <div className="space-y-2">
               <Label className="text-gray-200">Leader</Label>
-              <MemberEmailRow apiBase={apiBase} teamWord={teamWord} value={leader} onChange={setLeader} />
+              <MemberEmailRow apiBase={apiBase} teamWord={teamWord} value={leader} onChange={setLeader} idLabel={idLabel} />
             </div>
             <div className="space-y-2">
               <Label className="text-gray-200">Teammates (optional)</Label>
@@ -161,6 +170,7 @@ export function AdminCreateTeamButton({
                   key={row.key}
                   apiBase={apiBase}
                   teamWord={teamWord}
+                  idLabel={idLabel}
                   value={row}
                   onChange={(next) => setRows((rs) => rs.map((r) => (r.key === row.key ? { ...next, key: r.key } : r)))}
                   onRemove={() => setRows((rs) => rs.filter((r) => r.key !== row.key))}

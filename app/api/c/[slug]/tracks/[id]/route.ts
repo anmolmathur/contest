@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseTrackImageUrl } from "@/lib/track-image";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tracks, contests } from "@/lib/db/schema";
@@ -41,6 +42,11 @@ export async function PUT(
 
     const updateData: Record<string, unknown> = {};
     const allowedFields = ["name", "description", "icon", "sortOrder"];
+    const image = parseTrackImageUrl(body.imageUrl);
+    if (image.error) {
+      return NextResponse.json({ error: image.error }, { status: 400 });
+    }
+    if (image.value !== undefined) updateData.imageUrl = image.value;
 
     for (const field of allowedFields) {
       if (body[field] !== undefined) {

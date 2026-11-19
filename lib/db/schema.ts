@@ -127,6 +127,8 @@ export const tracks = pgTable("tracks", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   icon: varchar("icon", { length: 255 }),
+  // Optional cover image; empty = built-in artwork matched to the track theme (components/TrackArt.tsx)
+  imageUrl: varchar("image_url", { length: 500 }),
   sortOrder: integer("sort_order").default(0).notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
@@ -144,6 +146,9 @@ export const contestUsers = pgTable("contest_users", {
   // Additional team roles the same person also plays (string[]); see lib/team-capacity.ts
   extraRoles: jsonb("extra_roles"),
   teamId: uuid("team_id"),
+  // Optional ID the participant gives for this contest (Enrollment Number, Employee ID, ...).
+  // Label comes from contests.settings.memberIdLabel; see lib/member-identifier.ts.
+  memberIdentifier: varchar("member_identifier", { length: 100 }),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
 }, (table) => ({
   uniqueContestUser: unique().on(table.contestId, table.userId),

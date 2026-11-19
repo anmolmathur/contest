@@ -270,6 +270,7 @@ export async function POST(
       dispatchTeamJoined({
         contestId: contest.id,
         userId: session.user.id,
+        teamId: newTeam.id,
         teamName: newTeam.name,
         created: true,
       }).catch(() => {});
@@ -277,6 +278,7 @@ export async function POST(
 
     dispatchMembersAdded({
       contest,
+      teamId: newTeam.id,
       teamName: newTeam.name,
       addedByName: session.user.name,
       added,

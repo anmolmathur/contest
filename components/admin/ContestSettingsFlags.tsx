@@ -11,6 +11,9 @@ import {
 } from "@/components/ui/select";
 import { SectionCard, Toggle, inputCls } from "./editor-ui";
 import type { SettingsForm, Visibility } from "./contest-config-form";
+import { DEFAULT_SYMPOSIUM_TEAM_VIDEO } from "@/lib/contest-config";
+import { memberIdLabel } from "@/lib/member-identifier";
+import VideoEmbed from "@/components/team/VideoEmbed";
 
 /**
  * Edits `contests.settings` flags plus `visibility` and `supportEmail`.
@@ -26,6 +29,7 @@ export function ContestSettingsFlags({
   onSupportEmailChange,
   trackTerm = "Track",
   judgeTerm = "Judge",
+  contestType,
 }: {
   settings: SettingsForm;
   onSettingsChange: (next: SettingsForm) => void;
@@ -35,8 +39,16 @@ export function ContestSettingsFlags({
   onSupportEmailChange: (v: string) => void;
   trackTerm?: string;
   judgeTerm?: string;
+  /** Picks the defaults shown as placeholders (video, ID label). */
+  contestType?: string;
 }) {
   const set = (patch: Partial<SettingsForm>) => onSettingsChange({ ...settings, ...patch });
+  // teamCreationVideoUrl: absent → type default, "" → no video, URL → that video.
+  const typeDefaultVideo = contestType === "business_symposium" ? DEFAULT_SYMPOSIUM_TEAM_VIDEO : "";
+  const videoOn = settings.teamCreationVideoUrl !== "";
+  const videoValue = typeof settings.teamCreationVideoUrl === "string" ? settings.teamCreationVideoUrl : "";
+  const effectiveVideo = videoOn ? videoValue.trim() || typeDefaultVideo : "";
+  const defaultIdLabel = memberIdLabel({ contestType, settings: {} });
   return (
     <SectionCard title="Contest Options" description="Behaviour switches, visibility and contact details.">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -89,6 +101,49 @@ export function ContestSettingsFlags({
             </SelectContent>
           </Select>
           <p className="mt-1 text-[11px] text-gray-500">Visitors can still switch with the sun/moon button.</p>
+        </div>
+        <div className="md:col-span-2 rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+          <Toggle
+            checked={videoOn}
+            onChange={(v) => set({ teamCreationVideoUrl: v ? undefined : "" })}
+            label="Walkthrough video when creating a team"
+            description="Shown at the top of the Create team dialog."
+          />
+          {videoOn && (
+            <>
+              <Label className="text-xs text-gray-300">Video URL (Vimeo, YouTube or .mp4)</Label>
+              <Input
+                value={videoValue}
+                onChange={(e) => set({ teamCreationVideoUrl: e.target.value.trim() ? e.target.value : undefined })}
+                placeholder={typeDefaultVideo || "https://player.vimeo.com/video/…"}
+                className={inputCls}
+              />
+              <p className="text-[11px] text-gray-500">
+                {typeDefaultVideo
+                  ? "Leave blank to use the standard symposium walkthrough."
+                  : "Paste a link to show a video; leave blank for none."}
+              </p>
+              {effectiveVideo && (
+                <div className="max-w-md">
+                  <VideoEmbed url={effectiveVideo} title="Team creation walkthrough" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="md:col-span-2">
+          <Label className="text-xs text-gray-300">Participant ID label</Label>
+          <Input
+            value={typeof settings.memberIdLabel === "string" ? settings.memberIdLabel : ""}
+            onChange={(e) => set({ memberIdLabel: e.target.value || undefined })}
+            maxLength={60}
+            placeholder={defaultIdLabel}
+            className={inputCls}
+          />
+          <p className="mt-1 text-[11px] text-gray-500">
+            Name of the optional ID asked for at sign-up and team creation (e.g. Enrollment Number, Employee ID, Roll Number).
+            Leave blank for &quot;{defaultIdLabel}&quot;.
+          </p>
         </div>
         <div className="md:col-span-2">
           <Label className="text-xs text-gray-300">Theme line</Label>

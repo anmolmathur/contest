@@ -151,6 +151,8 @@ export function extendedPayload(f: ExtendedConfigForm): Record<string, unknown> 
   const settings: SettingsForm = { ...f.settings };
   if (typeof settings.theme === "string" && !settings.theme.trim()) delete settings.theme;
   if (settings.colorMode !== "light" && settings.colorMode !== "dark") delete settings.colorMode;
+  if (typeof settings.memberIdLabel !== "string" || !settings.memberIdLabel.trim()) delete settings.memberIdLabel;
+  if (settings.teamCreationVideoUrl === undefined || settings.teamCreationVideoUrl === null) delete settings.teamCreationVideoUrl;
   return {
     contestType: f.contestType,
     submissionFields: f.submissionFields.map((field) => {

@@ -7,6 +7,7 @@ import { resolveContest, isPlatformAdmin } from "@/lib/contest-auth";
 import { resolveSettings } from "@/lib/contest-config";
 import { checkTeamSlot, extraRolesOf, roleConfigOf } from "@/lib/team-capacity";
 import { allowsMultipleTeams, isOnTeam, teamIdsOf, teamsOf } from "@/lib/multi-team";
+import { memberIdLabel, parseMemberIdentifier } from "@/lib/member-identifier";
 
 /**
  * Track/category ids already claimed by a team. Only computed when the
@@ -78,6 +79,8 @@ export async function GET(
         takenTrackIds,
         multiTeam: allowsMultipleTeams(contest),
         teams: [],
+        memberIdentifier: null,
+        memberIdLabel: memberIdLabel(contest),
       });
     }
 
@@ -89,6 +92,7 @@ export async function GET(
       takenTrackIds,
       multiTeam: allowsMultipleTeams(contest),
       teams: await teamsOf(contest.id, contestUser.userId, contestUser.teamId),
+      memberIdLabel: memberIdLabel(contest),
     });
   } catch (error) {
     console.error("Error fetching contest user:", error);
@@ -98,14 +102,16 @@ export async function GET(
 
 // PUT /api/c/[slug]/users/me - Participant sets their own team role(s) / department
 //
-// Body: { participantRole?: string | null, extraRoles?: string[], department?: string | null }
+// Body: { participantRole?: string | null, extraRoles?: string[], department?: string | null,
+//         memberIdentifier?: string | null }
 //  - roles must be from contest.roleConfig when roleConfig is non-empty
 //  - extraRoles = further roles the same person plays (Ideathon: one person, many hats)
 //  - respects per-team role caps when the caller is already in a team
 //  - department must be from settings.departments when that list is set
 //  - null / "" clears the primary role
+//  - memberIdentifier: optional Enrollment Number / Employee ID (any member; "" or null clears)
 //  - activeTeamId (multi-team contests): switch which of my teams the dashboard shows
-// Response: { participantRole, extraRoles, department, activeTeamId? }
+// Response: { participantRole, extraRoles, department, memberIdentifier, activeTeamId? }
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -141,7 +147,10 @@ export async function PUT(
       extraRoles?: unknown;
       department?: unknown;
       activeTeamId?: unknown;
+      memberIdentifier?: unknown;
     };
+    const nothingElse =
+      body.participantRole === undefined && body.extraRoles === undefined && body.department === undefined && body.memberIdentifier === undefined;
 
     // ---- Switch active team (multi-team contests only) ----
     if (body.activeTeamId !== undefined) {
@@ -156,13 +165,19 @@ export async function PUT(
       }
       await db.update(contestUsers).set({ teamId: body.activeTeamId }).where(eq(contestUsers.id, contestUser.id));
       await db.update(users).set({ teamId: body.activeTeamId }).where(eq(users.id, session.user.id));
-      if (body.participantRole === undefined && body.extraRoles === undefined && body.department === undefined) {
+      if (nothingElse) {
         return NextResponse.json({ activeTeamId: body.activeTeamId });
       }
     }
 
-    if (body.participantRole === undefined && body.extraRoles === undefined && body.department === undefined) {
+    if (nothingElse) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    }
+
+    // ---- Member ID (any member) ----
+    const idInput = parseMemberIdentifier(body.memberIdentifier);
+    if (idInput.error) {
+      return NextResponse.json({ error: idInput.error }, { status: 400 });
     }
 
     // ---- Department (any member) ----
@@ -249,7 +264,16 @@ export async function PUT(
       await db.update(users).set({ department, updatedAt: new Date() }).where(eq(users.id, session.user.id));
     }
 
-    return NextResponse.json({ participantRole, extraRoles, department });
+    if (idInput.value !== undefined) {
+      await db.update(contestUsers).set({ memberIdentifier: idInput.value }).where(eq(contestUsers.id, contestUser.id));
+    }
+
+    return NextResponse.json({
+      participantRole,
+      extraRoles,
+      department,
+      memberIdentifier: idInput.value !== undefined ? idInput.value : contestUser.memberIdentifier,
+    });
   } catch (error) {
     console.error("Error updating contest role:", error);
     return NextResponse.json({ error: "Failed to update role" }, { status: 500 });

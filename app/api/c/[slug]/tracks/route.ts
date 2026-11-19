@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseTrackImageUrl } from "@/lib/track-image";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tracks, contests } from "@/lib/db/schema";
@@ -59,6 +60,10 @@ export async function POST(
     if (!name) {
       return NextResponse.json({ error: "Track name is required" }, { status: 400 });
     }
+    const image = parseTrackImageUrl(body.imageUrl);
+    if (image.error) {
+      return NextResponse.json({ error: image.error }, { status: 400 });
+    }
 
     // Auto-assign next sortOrder if not provided
     let effectiveSortOrder = sortOrder;
@@ -75,6 +80,7 @@ export async function POST(
       name,
       description: description || null,
       icon: icon || null,
+      imageUrl: image.value ?? null,
       sortOrder: effectiveSortOrder,
     }).returning();
 

@@ -6,6 +6,7 @@ import {
   termPlural as termPluralOf,
   resolveScale,
   resolveSettings,
+  teamCreationVideo,
   type AgendaItem,
   type ContestSettings,
   type ContestType,
@@ -16,6 +17,7 @@ import {
   type Terminology,
 } from "@/lib/contest-config";
 import { resolveSubmissionFields } from "@/lib/submission-fields";
+import { memberIdLabel } from "@/lib/member-identifier";
 import { getPreset, type ContestAward, type LandingCopy } from "@/lib/contest-types";
 import type { WordmarkSegment } from "@/lib/wordmark";
 import type { LogoOrder, OrgLogo } from "@/lib/org-logo";
@@ -25,6 +27,8 @@ export interface ContestTrack {
   name: string;
   description: string | null;
   icon: string | null;
+  /** Custom cover image; null = built-in themed artwork. */
+  imageUrl?: string | null;
   sortOrder: number;
 }
 
@@ -64,6 +68,8 @@ export interface RoleConfig {
   maxPerTeam: number;
   minPerTeam?: number;
   description?: string;
+  /** One-line "what this role does"; see lib/role-summary.ts for the fallback. */
+  summary?: string;
 }
 
 export interface Contest {
@@ -157,5 +163,9 @@ export function useContestConfig() {
     tp: (key: TermKey) => termPluralOf(terminology, key),
     landing: preset.landing as LandingCopy,
     preset,
+    /** Label of the optional per-person ID (Enrollment Number, Employee ID, ...). */
+    memberIdLabel: memberIdLabel(contest),
+    /** Walkthrough video for the "Create team" dialog, or null. */
+    teamCreationVideoUrl: teamCreationVideo(contest),
   };
 }

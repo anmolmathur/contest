@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 export interface MemberRow {
   email: string;
   name: string;
+  /** Optional Enrollment Number / Employee ID for this contest. */
+  memberIdentifier?: string;
 }
 
 type LookupResult =
@@ -25,6 +27,8 @@ interface MemberEmailRowProps {
   onRemove?: () => void;
   /** Team being joined (multi-team contests check membership of this team). */
   teamId?: string | null;
+  /** Label of the optional per-person ID; when set, an optional ID box is shown. */
+  idLabel?: string;
 }
 
 /** One teammate: email first, then their name fills in or is asked for. */
@@ -35,6 +39,7 @@ export default function MemberEmailRow({
   onChange,
   onRemove,
   teamId,
+  idLabel,
 }: MemberEmailRowProps) {
   const [lookup, setLookup] = useState<LookupResult | null>(null);
 
@@ -69,7 +74,7 @@ export default function MemberEmailRow({
           value={value.email}
           onChange={(e) => {
             setLookup(null);
-            onChange({ email: e.target.value, name: "" });
+            onChange({ email: e.target.value, name: "", memberIdentifier: value.memberIdentifier });
           }}
           onBlur={handleBlur}
           placeholder="teammate@email.com"
@@ -102,6 +107,16 @@ export default function MemberEmailRow({
             New here. They&apos;ll get an email to set a password.
           </p>
         </>
+      )}
+      {idLabel && (
+        <Input
+          value={value.memberIdentifier ?? ""}
+          onChange={(e) => onChange({ ...value, memberIdentifier: e.target.value })}
+          placeholder={`${idLabel} (optional)`}
+          aria-label={`Teammate ${idLabel}`}
+          maxLength={100}
+          className="bg-white/5 border-white/10 text-white"
+        />
       )}
       {lookup?.status === "available" && (
         <p className="text-xs text-emerald-400">{lookup.name || "Registered participant"}</p>

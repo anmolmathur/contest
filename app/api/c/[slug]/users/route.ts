@@ -37,6 +37,7 @@ export async function GET(
         role: contestUsers.role,
         participantRole: contestUsers.participantRole,
         teamId: contestUsers.teamId,
+        memberIdentifier: contestUsers.memberIdentifier,
         createdAt: contestUsers.createdAt,
         user: {
           id: users.id,
