@@ -126,8 +126,8 @@ export function validateExtendedConfig(f: ExtendedConfigForm): string[] {
     else if (keys.has(field.key)) errors.push(`Duplicate submission field key "${field.key}"`);
     keys.add(field.key);
     if (!field.label.trim()) errors.push(`Submission field #${i + 1} needs a label`);
-    if (field.type === "select" && !(field.options ?? []).some((o) => o.trim())) {
-      errors.push(`Select field ${label} needs at least one option`);
+    if ((field.type === "select" || field.type === "multiselect") && !(field.options ?? []).some((o) => o.trim())) {
+      errors.push(`Choice field ${label} needs at least one option`);
     }
   });
   const s = f.scoringScale;
@@ -167,7 +167,17 @@ export function extendedPayload(f: ExtendedConfigForm): Record<string, unknown> 
       if (field.phases && field.phases.length > 0) out.phases = [...field.phases].sort((a, b) => a - b);
       if ((field.type === "file" || field.type === "fileList") && field.accept?.trim()) out.accept = field.accept.trim();
       if ((field.type === "file" || field.type === "fileList") && field.maxSizeMb) out.maxSizeMb = field.maxSizeMb;
-      if (field.type === "select") out.options = (field.options ?? []).map((o) => o.trim()).filter(Boolean);
+      if (field.type === "select" || field.type === "multiselect") {
+        out.options = (field.options ?? []).map((o) => o.trim()).filter(Boolean);
+      }
+      if (field.type === "number") {
+        if (typeof field.min === "number") out.min = field.min;
+        if (typeof field.max === "number") out.max = field.max;
+      }
+      // Not editable in the form (Ideathon path-conditional fields) — keep as-is.
+      if (Array.isArray(field.requiredForPaths) && field.requiredForPaths.length > 0) {
+        out.requiredForPaths = [...field.requiredForPaths];
+      }
       return out;
     }),
     scoringScale: {
